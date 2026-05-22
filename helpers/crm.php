@@ -6,6 +6,35 @@
 declare(strict_types=1);
 
 /**
+ * Normalize CRM JSON — supports object or array wrapper from API
+ *
+ * @return array<int, array<string, mixed>>
+ */
+function extractCrmOnlineLocationStock(?array $data, string $rawBody = ''): array
+{
+    if (!is_array($data)) {
+        $snippet = substr(trim($rawBody), 0, 300);
+        logError('CRM response is not JSON. Snippet: ' . $snippet);
+        throw new RuntimeException('Invalid CRM response format (not JSON)');
+    }
+
+    // [{"onlineLocationStock": [...]}]
+    if (isset($data[0]) && is_array($data[0]) && isset($data[0]['onlineLocationStock'])) {
+        $list = $data[0]['onlineLocationStock'];
+        return is_array($list) ? $list : [];
+    }
+
+    // {"onlineLocationStock": [...]}
+    if (isset($data['onlineLocationStock']) && is_array($data['onlineLocationStock'])) {
+        return $data['onlineLocationStock'];
+    }
+
+    $snippet = substr(trim($rawBody), 0, 300);
+    logError('CRM response missing onlineLocationStock. Snippet: ' . $snippet);
+    throw new RuntimeException('Invalid CRM response format');
+}
+
+/**
  * Fetch online location stock from CRM API
  *
  * @return array<int, array<string, mixed>>
@@ -23,13 +52,12 @@ function fetchCRMData(): array
     }
 
     $data = $response['json'];
-    if (!is_array($data) || !isset($data['onlineLocationStock']) || !is_array($data['onlineLocationStock'])) {
-        logError('CRM response missing onlineLocationStock array');
-        throw new RuntimeException('Invalid CRM response format');
-    }
+
+    // CRM may return {"onlineLocationStock":[...]} OR [{"onlineLocationStock":[...]}]
+    $stockList = extractCrmOnlineLocationStock($data, $response['body']);
 
     $products = [];
-    foreach ($data['onlineLocationStock'] as $item) {
+    foreach ($stockList as $item) {
         if (!is_array($item)) {
             continue;
         }
