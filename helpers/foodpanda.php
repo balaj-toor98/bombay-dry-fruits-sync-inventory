@@ -151,10 +151,8 @@ function buildFoodpandaCatalogProduct(array $p): ?array
         'active' => $isActive,
     ];
 
-    // CRM ProductBarcode (e.g. 1NO) — send as both sku and barcode for Foodpanda
-    $barcode = trim((string) ($p['barcode'] ?? $p['sku'] ?? ''));
-    if ($barcode !== '') {
-        $entry['barcode'] = $barcode;
+    if (!empty($p['barcode'])) {
+        $entry['barcode'] = (string) $p['barcode'];
     }
 
     if (isset($p['price']) && (float) $p['price'] > 0) {

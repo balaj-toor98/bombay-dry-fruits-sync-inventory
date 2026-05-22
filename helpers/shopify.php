@@ -60,64 +60,41 @@ function validateShopifyWebhook(string $rawBody, string $hmacHeader): bool
 }
 
 /**
- * Cache: SKU or barcode → inventory_item_id (per request lifecycle)
- * @var array<string, int>
+ * Cache: SKU → inventory_item_id (per request lifecycle)
+ * @var array<string, int|string>
  */
 $GLOBALS['_shopify_inventory_cache'] = [];
 
 /**
- * Load Shopify variants indexed by SKU and barcode (CRM ProductBarcode e.g. "1NO")
- */
-function loadShopifyVariantInventoryCache(): void
-{
-    if (count($GLOBALS['_shopify_inventory_cache']) > 0) {
-        return;
-    }
-
-    $response = shopifyRequest('GET', 'products.json?limit=250&fields=id,variants');
-
-    if (!$response['success'] || !is_array($response['json']['products'] ?? null)) {
-        logWarning('Shopify product list fetch failed for SKU/barcode lookup');
-        return;
-    }
-
-    foreach ($response['json']['products'] as $product) {
-        foreach ($product['variants'] ?? [] as $variant) {
-            $invId = (int) ($variant['inventory_item_id'] ?? 0);
-            if ($invId <= 0) {
-                continue;
-            }
-
-            $variantSku = trim((string) ($variant['sku'] ?? ''));
-            $variantBarcode = trim((string) ($variant['barcode'] ?? ''));
-
-            if ($variantSku !== '') {
-                $GLOBALS['_shopify_inventory_cache'][$variantSku] = $invId;
-            }
-            if ($variantBarcode !== '') {
-                $GLOBALS['_shopify_inventory_cache'][$variantBarcode] = $invId;
-            }
-        }
-    }
-}
-
-/**
- * Resolve Shopify inventory_item_id by CRM barcode / SKU (e.g. "1NO")
+ * Resolve Shopify inventory_item_id by variant SKU
  */
 function getShopifyInventoryItemIdBySku(string $sku): ?int
 {
-    $sku = trim($sku);
-    if ($sku === '') {
-        return null;
-    }
-
-    loadShopifyVariantInventoryCache();
-
     if (isset($GLOBALS['_shopify_inventory_cache'][$sku])) {
         return (int) $GLOBALS['_shopify_inventory_cache'][$sku];
     }
 
-    return null;
+    // Search products by SKU via variants
+    $response = shopifyRequest('GET', 'products.json?limit=250&fields=id,variants');
+
+    if (!$response['success'] || !is_array($response['json']['products'] ?? null)) {
+        logWarning('Shopify product list fetch failed for SKU lookup');
+        return null;
+    }
+
+    foreach ($response['json']['products'] as $product) {
+        foreach ($product['variants'] ?? [] as $variant) {
+            $variantSku = (string) ($variant['sku'] ?? '');
+            $invId = (int) ($variant['inventory_item_id'] ?? 0);
+            if ($variantSku !== '' && $invId > 0) {
+                $GLOBALS['_shopify_inventory_cache'][$variantSku] = $invId;
+            }
+        }
+    }
+
+    return isset($GLOBALS['_shopify_inventory_cache'][$sku])
+        ? (int) $GLOBALS['_shopify_inventory_cache'][$sku]
+        : null;
 }
 
 /**
@@ -264,44 +241,32 @@ function createShopifyOrder(array $orderData): array
 }
 
 /**
- * Cache: SKU or barcode → variant_id
- * @var array<string, int>
- */
-$GLOBALS['_shopify_variant_id_cache'] = [];
-
-/**
- * Get variant ID by CRM barcode / SKU (e.g. "1NO")
+ * Get variant ID by SKU
  */
 function getShopifyVariantIdBySku(string $sku): ?int
 {
-    $sku = trim($sku);
-    if ($sku === '') {
+    static $cache = [];
+
+    if (isset($cache[$sku])) {
+        return $cache[$sku];
+    }
+
+    $response = shopifyRequest('GET', 'products.json?limit=250&fields=id,variants');
+
+    if (!$response['success']) {
         return null;
     }
 
-    if (count($GLOBALS['_shopify_variant_id_cache']) === 0) {
-        $response = shopifyRequest('GET', 'products.json?limit=250&fields=id,variants');
-        if ($response['success']) {
-            foreach ($response['json']['products'] ?? [] as $product) {
-                foreach ($product['variants'] ?? [] as $variant) {
-                    $variantId = (int) ($variant['id'] ?? 0);
-                    if ($variantId <= 0) {
-                        continue;
-                    }
-                    $variantSku = trim((string) ($variant['sku'] ?? ''));
-                    $variantBarcode = trim((string) ($variant['barcode'] ?? ''));
-                    if ($variantSku !== '') {
-                        $GLOBALS['_shopify_variant_id_cache'][$variantSku] = $variantId;
-                    }
-                    if ($variantBarcode !== '') {
-                        $GLOBALS['_shopify_variant_id_cache'][$variantBarcode] = $variantId;
-                    }
-                }
+    foreach ($response['json']['products'] ?? [] as $product) {
+        foreach ($product['variants'] ?? [] as $variant) {
+            if ((string) ($variant['sku'] ?? '') === $sku) {
+                $cache[$sku] = (int) $variant['id'];
+                return $cache[$sku];
             }
         }
     }
 
-    return $GLOBALS['_shopify_variant_id_cache'][$sku] ?? null;
+    return null;
 }
 
 /**
