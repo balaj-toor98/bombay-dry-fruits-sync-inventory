@@ -125,7 +125,7 @@ function saveProductsToDB(array $products): int
         $stock = (int) $p['stock'];
         $price = (float) $p['price'];
 
-        $stmt->bind_param('sssids', $productId, $sku, $name, $stock, $price);
+        $stmt->bind_param('sssid', $productId, $sku, $name, $stock, $price);
 
         if ($stmt->execute()) {
             $saved++;
