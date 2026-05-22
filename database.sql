@@ -1,11 +1,11 @@
 -- Bombay Dry Fruits - Inventory Sync Middleware
--- Run this in phpMyAdmin on Hostinger
-
-CREATE DATABASE IF NOT EXISTS `bombay_inventory_sync`
-  CHARACTER SET utf8mb4
-  COLLATE utf8mb4_unicode_ci;
-
-USE `bombay_inventory_sync`;
+--
+-- HOSTINGER: Do NOT run CREATE DATABASE here.
+-- 1. Create DB in hPanel (e.g. u681832676_inventory_sync)
+-- 2. phpMyAdmin → click YOUR database in the left sidebar
+-- 3. Import this file (only tables will be created)
+--
+-- Local/dev: create empty DB first, select it, then import.
 
 -- Products (local cache from CRM, synced to Shopify + Foodpanda)
 CREATE TABLE IF NOT EXISTS `products` (
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS `logs` (
   KEY `idx_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Optional: track last successful sync timestamps
+-- Track last successful sync timestamps
 CREATE TABLE IF NOT EXISTS `sync_meta` (
   `id` TINYINT UNSIGNED NOT NULL DEFAULT 1,
   `last_crm_fetch` DATETIME NULL,

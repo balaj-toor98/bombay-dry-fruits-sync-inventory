@@ -1,6 +1,7 @@
 <?php
 /**
- * Example configuration — copy to config.php and fill in values
+ * Example configuration — copy to config.php on the server and fill in real values.
+ * Do NOT commit config.php to GitHub (it is in .gitignore).
  */
 declare(strict_types=1);
 
@@ -8,25 +9,29 @@ define('APP_ROOT', dirname(__DIR__));
 define('APP_ENV', 'production');
 define('APP_TIMEZONE', 'Asia/Karachi');
 
+// --- MySQL (Hostinger: use FULL names with u681832676_ prefix) ---
 define('DB_HOST', 'localhost');
-define('DB_NAME', 'u123456789_inventory');
-define('DB_USER', 'u123456789_user');
-define('DB_PASS', 'your_password');
+define('DB_NAME', 'u681832676_inventory_sync'); // exact name from hPanel → Databases
+define('DB_USER', 'u681832676_inventory_sync'); // must match DB user you created
+define('DB_PASS', 'PASTE_PASSWORD_FROM_HOSTINGER');
 define('DB_CHARSET', 'utf8mb4');
 
+// --- CRM (usually leave as-is) ---
 define('CRM_STOCK_URL', 'http://95.216.16.119:8085/myapi/getonlinelocationstock');
 define('CRM_TIMEOUT', 120);
 
-define('SHOPIFY_SHOP', 'bombay-dry-fruits.myshopify.com');
+// --- Shopify (replace with your store) ---
+define('SHOPIFY_SHOP', 'your-store.myshopify.com');
 define('SHOPIFY_ACCESS_TOKEN', 'shpat_xxxxxxxx');
 define('SHOPIFY_API_VERSION', '2024-01');
 define('SHOPIFY_LOCATION_ID', 12345678901);
 define('SHOPIFY_WEBHOOK_SECRET', 'whsec_xxxxxxxx');
 
+// --- Foodpanda Partner API ---
 define('FOODPANDA_API_BASE', 'https://foodpanda.partner.deliveryhero.io');
-define('FOODPANDA_CHAIN_ID', '85649d5b-fc07-4c96-8ddb-91e03525ae35');
-define('FOODPANDA_VENDOR_ID', '12345');
-define('FOODPANDA_API_TOKEN', 'your_token');
+define('FOODPANDA_CHAIN_ID', 'your-chain-uuid');
+define('FOODPANDA_VENDOR_ID', 'your-vendor-id');
+define('FOODPANDA_API_TOKEN', 'your_bearer_token');
 define('FOODPANDA_WEBHOOK_SECRET', 'your_webhook_secret');
 define('FOODPANDA_SALES_BUFFER', 1);
 define('FOODPANDA_LOCALE', 'en_PK');
@@ -44,5 +49,14 @@ define('LOG_FILE_PATH', APP_ROOT . '/logs/app.log');
 define('DASHBOARD_ENABLED', true);
 define('DASHBOARD_USER', 'admin');
 define('DASHBOARD_PASS', 'change_me');
+
+if (APP_ENV === 'development') {
+    error_reporting(E_ALL);
+    ini_set('display_errors', '1');
+} else {
+    error_reporting(E_ALL);
+    ini_set('display_errors', '0');
+    ini_set('log_errors', '1');
+}
 
 date_default_timezone_set(APP_TIMEZONE);
