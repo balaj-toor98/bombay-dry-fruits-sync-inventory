@@ -3,6 +3,7 @@
 # -----------------------------------------------------------------------------
 config/config.php
 config/config.local.php
+private/config.php
 .env
 .env.*
 !.env.example

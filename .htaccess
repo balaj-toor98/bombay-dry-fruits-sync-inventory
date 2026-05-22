@@ -6,6 +6,7 @@
 
     # Block direct access to sensitive directories
     RewriteRule ^config/ - [F,L]
+    RewriteRule ^private/ - [F,L]
     RewriteRule ^helpers/ - [F,L]
     RewriteRule ^cron/ - [F,L]
     RewriteRule ^sync/ - [F,L]

@@ -41,9 +41,26 @@ Pure PHP + MySQL middleware to sync inventory and orders between **CRM**, **Shop
 
 Deploy via **GitHub** (Hostinger Git deployment) or FTP into `public_html/` (or a subfolder).
 
-### 3. Configure
+### 3. Configure (survives Git auto-deploy)
 
-Edit `config/config.php`:
+**Do not rely on `public_html/config/config.php`** — Hostinger Git deploy replaces `public_html` and deletes files that are not in the repo (including `config.php`).
+
+Create config **outside** `public_html`:
+
+```
+domains/your-site/private/config.php   ← recommended
+```
+
+1. File Manager → open the folder **above** `public_html` (your domain root)
+2. Create folder `private`
+3. Copy `public_html/config/config.example.php` → `private/config.php`
+4. Edit `private/config.php` with real credentials
+
+See [private/README.md](private/README.md).
+
+Legacy path `public_html/config/config.php` still works locally but will be removed on each deploy.
+
+Edit `private/config.php` (or local `config/config.php`):
 
 | Setting | Description |
 |---------|-------------|

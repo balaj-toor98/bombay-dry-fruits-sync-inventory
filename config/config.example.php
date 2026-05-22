@@ -1,7 +1,11 @@
 <?php
 /**
- * Example configuration — copy to config.php on the server and fill in real values.
- * Do NOT commit config.php to GitHub (it is in .gitignore).
+ * Example configuration — copy and fill in real values.
+ *
+ * HOSTINGER (Git auto-deploy): copy to ../private/config.php (above public_html).
+ * LOCAL: copy to config/config.php
+ *
+ * Do NOT commit real config.php to GitHub.
  */
 declare(strict_types=1);
 
