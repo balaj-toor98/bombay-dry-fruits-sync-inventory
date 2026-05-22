@@ -1,0 +1,36 @@
+# Bombay Dry Fruits Sync Middleware - Apache (Hostinger)
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+
+    # Block direct access to sensitive directories
+    RewriteRule ^config/ - [F,L]
+    RewriteRule ^helpers/ - [F,L]
+    RewriteRule ^cron/ - [F,L]
+    RewriteRule ^sync/ - [F,L]
+    RewriteRule ^logs/ - [F,L]
+
+    # Optional: redirect root to dashboard
+    RewriteRule ^$ dashboard/ [L]
+</IfModule>
+
+# Deny access to config and helper PHP files if accessed directly
+<FilesMatch "^(config\.php|bootstrap\.php|database\.php)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+</FilesMatch>
+
+# Protect log files
+<FilesMatch "\.(log|sql)$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+</FilesMatch>
+
+# PHP settings (Hostinger shared hosting)
+<IfModule mod_php.c>
+    php_value max_execution_time 300
+    php_value memory_limit 256M
+</IfModule>
