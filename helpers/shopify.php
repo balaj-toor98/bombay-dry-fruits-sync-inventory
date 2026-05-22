@@ -24,11 +24,14 @@ function shopifyApiUrl(string $endpoint): string
 }
 
 /**
- * Shopify API request with access token
+ * Shopify API request (relative endpoint or full URL)
  */
-function shopifyRequest(string $method, string $endpoint, ?array $payload = null): array
+function shopifyRequest(string $method, string $endpointOrUrl, ?array $payload = null, array $extra = []): array
 {
-    $url = shopifyApiUrl($endpoint);
+    $url = str_starts_with($endpointOrUrl, 'http')
+        ? $endpointOrUrl
+        : shopifyApiUrl($endpointOrUrl);
+
     $options = [
         'headers' => [
             'X-Shopify-Access-Token: ' . SHOPIFY_ACCESS_TOKEN,
@@ -36,11 +39,201 @@ function shopifyRequest(string $method, string $endpoint, ?array $payload = null
         ],
     ];
 
+    if (!empty($extra['include_headers'])) {
+        $options['include_headers'] = true;
+    }
+
     if ($payload !== null) {
         $options['json'] = $payload;
     }
 
     return httpRequest($method, $url, $options);
+}
+
+/**
+ * Normalize SKU for matching CRM ↔ Shopify
+ */
+function normalizeSku(string $sku): string
+{
+    return trim($sku);
+}
+
+/**
+ * SKU → inventory_item_id cache (all pages)
+ * @var array<string, int>
+ */
+$GLOBALS['_shopify_inventory_cache'] = [];
+$GLOBALS['_shopify_inventory_cache_loaded'] = false;
+
+/**
+ * Parse Shopify Link header for next page URL
+ */
+function shopifyNextPageUrl(array $headers): ?string
+{
+    $link = $headers['link'] ?? '';
+    if ($link === '') {
+        return null;
+    }
+    if (preg_match('/<([^>]+)>;\s*rel="next"/i', $link, $m)) {
+        return $m[1];
+    }
+    return null;
+}
+
+/**
+ * Load ALL Shopify variant SKUs (paginated — fixes missing SKUs after product #250)
+ */
+function loadShopifyInventoryCache(bool $forceReload = false): void
+{
+    if ($GLOBALS['_shopify_inventory_cache_loaded'] && !$forceReload) {
+        return;
+    }
+
+    $GLOBALS['_shopify_inventory_cache'] = [];
+    $url = shopifyApiUrl('products.json?limit=250&fields=id,variants');
+    $pages = 0;
+    $variantCount = 0;
+
+    while ($url !== null && $pages < 200) {
+        $response = shopifyRequest('GET', $url, null, ['include_headers' => true]);
+        $pages++;
+
+        if (!$response['success'] || !is_array($response['json']['products'] ?? null)) {
+            logError('Shopify product page fetch failed: HTTP ' . $response['status'] . ' — ' . substr($response['body'], 0, 200));
+            break;
+        }
+
+        foreach ($response['json']['products'] as $product) {
+            foreach ($product['variants'] ?? [] as $variant) {
+                $variantSku = normalizeSku((string) ($variant['sku'] ?? ''));
+                $invId = (int) ($variant['inventory_item_id'] ?? 0);
+                if ($variantSku !== '' && $invId > 0) {
+                    $GLOBALS['_shopify_inventory_cache'][$variantSku] = $invId;
+                    $variantCount++;
+                }
+            }
+        }
+
+        $url = shopifyNextPageUrl($response['headers']);
+    }
+
+    $GLOBALS['_shopify_inventory_cache_loaded'] = true;
+    logSync("Shopify SKU cache loaded: {$variantCount} variants from {$pages} page(s)");
+}
+
+/**
+ * Resolve Shopify inventory_item_id by variant SKU
+ */
+function getShopifyInventoryItemIdBySku(string $sku): ?int
+{
+    $sku = normalizeSku($sku);
+    loadShopifyInventoryCache();
+
+    if (isset($GLOBALS['_shopify_inventory_cache'][$sku])) {
+        return (int) $GLOBALS['_shopify_inventory_cache'][$sku];
+    }
+
+    // Case-insensitive fallback
+    foreach ($GLOBALS['_shopify_inventory_cache'] as $cachedSku => $invId) {
+        if (strcasecmp($cachedSku, $sku) === 0) {
+            return (int) $invId;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Ensure inventory item is connected to configured location
+ */
+function connectShopifyInventoryToLocation(int $inventoryItemId): bool
+{
+    $response = shopifyRequest('POST', 'inventory_levels/connect.json', [
+        'location_id' => SHOPIFY_LOCATION_ID,
+        'inventory_item_id' => $inventoryItemId,
+    ]);
+
+    if ($response['success']) {
+        return true;
+    }
+
+    // Already connected or minor issue
+    if (in_array($response['status'], [422, 200], true)) {
+        return true;
+    }
+
+    logWarning("Shopify connect inventory {$inventoryItemId}: HTTP {$response['status']} — {$response['body']}");
+    return false;
+}
+
+/**
+ * Set inventory level for one SKU
+ */
+function setShopifyInventoryBySku(string $sku, int $quantity): bool
+{
+    $sku = normalizeSku($sku);
+    $inventoryItemId = getShopifyInventoryItemIdBySku($sku);
+
+    if ($inventoryItemId === null) {
+        logWarning("Shopify: SKU not found in store catalog: {$sku}");
+        return false;
+    }
+
+    connectShopifyInventoryToLocation($inventoryItemId);
+
+    $available = max(0, $quantity);
+    $response = shopifyRequest('POST', 'inventory_levels/set.json', [
+        'location_id' => SHOPIFY_LOCATION_ID,
+        'inventory_item_id' => $inventoryItemId,
+        'available' => $available,
+    ]);
+
+    if (!$response['success']) {
+        logError("Shopify inventory set failed for SKU {$sku} (qty {$available}): HTTP {$response['status']} — {$response['body']}");
+        return false;
+    }
+
+    logSync("Shopify inventory set OK: SKU {$sku} → {$available}");
+    return true;
+}
+
+/**
+ * Sync all (or filtered) products to Shopify inventory
+ *
+ * @param array<int, array<string, mixed>>|null $products null = all from DB
+ * @return array{success: int, failed: int}
+ */
+function syncShopifyInventory(?array $products = null): array
+{
+    if ($products === null) {
+        $products = getAllProductsForSync();
+    }
+
+    // Rebuild full SKU map every sync (paginated)
+    loadShopifyInventoryCache(true);
+
+    $success = 0;
+    $failed = 0;
+
+    logSync('Starting Shopify inventory sync for ' . count($products) . ' products');
+
+    foreach ($products as $product) {
+        $sku = normalizeSku((string) $product['sku']);
+        $stock = (int) $product['stock'];
+
+        if (setShopifyInventoryBySku($sku, $stock)) {
+            $success++;
+        } else {
+            $failed++;
+        }
+
+        usleep(250000);
+    }
+
+    updateSyncMeta('last_shopify_sync');
+    logSync("Shopify sync done: {$success} ok, {$failed} failed");
+
+    return ['success' => $success, 'failed' => $failed];
 }
 
 /**
@@ -60,120 +253,14 @@ function validateShopifyWebhook(string $rawBody, string $hmacHeader): bool
 }
 
 /**
- * Cache: SKU → inventory_item_id (per request lifecycle)
- * @var array<string, int|string>
- */
-$GLOBALS['_shopify_inventory_cache'] = [];
-
-/**
- * Resolve Shopify inventory_item_id by variant SKU
- */
-function getShopifyInventoryItemIdBySku(string $sku): ?int
-{
-    if (isset($GLOBALS['_shopify_inventory_cache'][$sku])) {
-        return (int) $GLOBALS['_shopify_inventory_cache'][$sku];
-    }
-
-    // Search products by SKU via variants
-    $response = shopifyRequest('GET', 'products.json?limit=250&fields=id,variants');
-
-    if (!$response['success'] || !is_array($response['json']['products'] ?? null)) {
-        logWarning('Shopify product list fetch failed for SKU lookup');
-        return null;
-    }
-
-    foreach ($response['json']['products'] as $product) {
-        foreach ($product['variants'] ?? [] as $variant) {
-            $variantSku = (string) ($variant['sku'] ?? '');
-            $invId = (int) ($variant['inventory_item_id'] ?? 0);
-            if ($variantSku !== '' && $invId > 0) {
-                $GLOBALS['_shopify_inventory_cache'][$variantSku] = $invId;
-            }
-        }
-    }
-
-    return isset($GLOBALS['_shopify_inventory_cache'][$sku])
-        ? (int) $GLOBALS['_shopify_inventory_cache'][$sku]
-        : null;
-}
-
-/**
- * Set inventory level for one SKU
- */
-function setShopifyInventoryBySku(string $sku, int $quantity): bool
-{
-    $inventoryItemId = getShopifyInventoryItemIdBySku($sku);
-    if ($inventoryItemId === null) {
-        logWarning("Shopify: no inventory_item_id for SKU {$sku}");
-        return false;
-    }
-
-    $response = shopifyRequest('POST', 'inventory_levels/set.json', [
-        'location_id' => SHOPIFY_LOCATION_ID,
-        'inventory_item_id' => $inventoryItemId,
-        'available' => max(0, $quantity),
-    ]);
-
-    if (!$response['success']) {
-        logError("Shopify inventory set failed for {$sku}: HTTP {$response['status']} — {$response['body']}");
-        return false;
-    }
-
-    return true;
-}
-
-/**
- * Sync all (or filtered) products to Shopify inventory
- *
- * @param array<int, array<string, mixed>>|null $products null = all from DB
- * @return array{success: int, failed: int}
- */
-function syncShopifyInventory(?array $products = null): array
-{
-    if ($products === null) {
-        $products = getAllProductsForSync();
-    }
-
-    $success = 0;
-    $failed = 0;
-
-    logSync('Starting Shopify inventory sync for ' . count($products) . ' products');
-
-    foreach ($products as $product) {
-        $sku = (string) $product['sku'];
-        $stock = (int) $product['stock'];
-
-        if (setShopifyInventoryBySku($sku, $stock)) {
-            $success++;
-        } else {
-            $failed++;
-        }
-
-        // Rate limit courtesy (2 calls/sec max on basic plans)
-        usleep(250000);
-    }
-
-    updateSyncMeta('last_shopify_sync');
-    logSync("Shopify sync done: {$success} ok, {$failed} failed");
-
-    return ['success' => $success, 'failed' => $failed];
-}
-
-/**
  * Create order in Shopify from external platform (Foodpanda)
- *
- * @param array<string, mixed> $orderData
- *   - line_items: [{sku, quantity, price?, title?}]
- *   - customer: {first_name, last_name, phone?, email?}
- *   - note, tags, external_id
- * @return array{success: bool, order_id: ?int, error: ?string}
  */
 function createShopifyOrder(array $orderData): array
 {
     $lineItems = [];
 
     foreach ($orderData['line_items'] ?? [] as $item) {
-        $sku = trim((string) ($item['sku'] ?? ''));
+        $sku = normalizeSku((string) ($item['sku'] ?? ''));
         $qty = max(1, (int) ($item['quantity'] ?? 1));
         $price = (string) ($item['price'] ?? '0.00');
         $title = (string) ($item['title'] ?? $sku);
@@ -182,7 +269,6 @@ function createShopifyOrder(array $orderData): array
             continue;
         }
 
-        // Resolve variant_id by SKU for proper line item linking
         $variantId = getShopifyVariantIdBySku($sku);
 
         $lineItem = [
@@ -240,30 +326,45 @@ function createShopifyOrder(array $orderData): array
     return ['success' => true, 'order_id' => $orderId > 0 ? $orderId : null, 'error' => null];
 }
 
+/** @var array<string, int> */
+$GLOBALS['_shopify_variant_cache'] = [];
+
 /**
- * Get variant ID by SKU
+ * Get variant ID by SKU (uses paginated cache)
  */
 function getShopifyVariantIdBySku(string $sku): ?int
 {
-    static $cache = [];
+    $sku = normalizeSku($sku);
 
-    if (isset($cache[$sku])) {
-        return $cache[$sku];
+    if (isset($GLOBALS['_shopify_variant_cache'][$sku])) {
+        return $GLOBALS['_shopify_variant_cache'][$sku];
     }
 
-    $response = shopifyRequest('GET', 'products.json?limit=250&fields=id,variants');
+    $url = shopifyApiUrl('products.json?limit=250&fields=id,variants');
+    $pages = 0;
 
-    if (!$response['success']) {
-        return null;
-    }
+    while ($url !== null && $pages < 200) {
+        $response = shopifyRequest('GET', $url, null, ['include_headers' => true]);
+        $pages++;
 
-    foreach ($response['json']['products'] ?? [] as $product) {
-        foreach ($product['variants'] ?? [] as $variant) {
-            if ((string) ($variant['sku'] ?? '') === $sku) {
-                $cache[$sku] = (int) $variant['id'];
-                return $cache[$sku];
+        if (!$response['success']) {
+            return null;
+        }
+
+        foreach ($response['json']['products'] ?? [] as $product) {
+            foreach ($product['variants'] ?? [] as $variant) {
+                $variantSku = normalizeSku((string) ($variant['sku'] ?? ''));
+                $variantId = (int) ($variant['id'] ?? 0);
+                if ($variantSku !== '' && $variantId > 0) {
+                    $GLOBALS['_shopify_variant_cache'][$variantSku] = $variantId;
+                    if (strcasecmp($variantSku, $sku) === 0) {
+                        return $variantId;
+                    }
+                }
             }
         }
+
+        $url = shopifyNextPageUrl($response['headers']);
     }
 
     return null;
@@ -279,7 +380,7 @@ function parseShopifyOrderLineItems(array $payload): array
     $lineItems = $payload['line_items'] ?? [];
 
     foreach ($lineItems as $line) {
-        $sku = trim((string) ($line['sku'] ?? ''));
+        $sku = normalizeSku((string) ($line['sku'] ?? ''));
         if ($sku === '') {
             continue;
         }

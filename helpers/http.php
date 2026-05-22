@@ -11,7 +11,7 @@ declare(strict_types=1);
  * @param string $method GET|POST|PUT|PATCH|DELETE
  * @param string $url
  * @param array<string, mixed> $options headers, body, json, bearer, timeout
- * @return array{success: bool, status: int, body: string, json: ?array, error: ?string}
+ * @return array{success: bool, status: int, body: string, json: ?array, error: ?string, headers: array<string, string>}
  */
 function httpRequest(string $method, string $url, array $options = []): array
 {
@@ -25,6 +25,7 @@ function httpRequest(string $method, string $url, array $options = []): array
         'body' => '',
         'json' => null,
         'error' => 'No attempt made',
+        'headers' => [],
     ];
 
     for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
@@ -76,6 +77,8 @@ function httpRequestOnce(string $method, string $url, array $options, int $timeo
         curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
     }
 
+    $includeHeaders = !empty($options['include_headers']);
+
     curl_setopt_array($ch, [
         CURLOPT_URL => $url,
         CURLOPT_CUSTOMREQUEST => strtoupper($method),
@@ -85,21 +88,33 @@ function httpRequestOnce(string $method, string $url, array $options, int $timeo
         CURLOPT_FOLLOWLOCATION => true,
         CURLOPT_SSL_VERIFYPEER => true,
         CURLOPT_SSL_VERIFYHOST => 2,
+        CURLOPT_HEADER => $includeHeaders,
     ]);
 
-    $body = curl_exec($ch);
+    $raw = curl_exec($ch);
     $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
     $error = curl_error($ch);
     curl_close($ch);
 
-    if ($body === false) {
+    if ($raw === false) {
         return [
             'success' => false,
             'status' => 0,
             'body' => '',
             'json' => null,
             'error' => $error ?: 'cURL request failed',
+            'headers' => [],
         ];
+    }
+
+    $body = $raw;
+    $responseHeaders = [];
+
+    if ($includeHeaders) {
+        $headerSize = (int) curl_getinfo($ch, CURLINFO_HEADER_SIZE);
+        $headerBlock = substr((string) $raw, 0, $headerSize);
+        $body = substr((string) $raw, $headerSize);
+        $responseHeaders = parseHttpResponseHeaders($headerBlock);
     }
 
     $decoded = json_decode($body, true);
@@ -110,7 +125,23 @@ function httpRequestOnce(string $method, string $url, array $options, int $timeo
         'body' => $body,
         'json' => is_array($decoded) ? $decoded : null,
         'error' => null,
+        'headers' => $responseHeaders,
     ];
+}
+
+/**
+ * @return array<string, string> lowercase header names
+ */
+function parseHttpResponseHeaders(string $headerBlock): array
+{
+    $headers = [];
+    foreach (explode("\r\n", $headerBlock) as $line) {
+        if (str_contains($line, ':')) {
+            [$name, $value] = explode(':', $line, 2);
+            $headers[strtolower(trim($name))] = trim($value);
+        }
+    }
+    return $headers;
 }
 
 /**
