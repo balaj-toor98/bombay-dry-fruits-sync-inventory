@@ -87,6 +87,24 @@ Edit `private/config.php` (or local `config/config.php`):
 
 Replace paths with your Hostinger PHP path (`which php` in SSH).
 
+### SSH test runner (all sync steps)
+
+```bash
+cd ~/domains/blue-cobra-687212.hostingersite.com/public_html
+
+# Full pipeline: CRM → DB → Shopify → Foodpanda
+/usr/bin/php cron/test_all_sync.php
+
+# Shopify only (from DB)
+/usr/bin/php cron/test_all_sync.php --shopify
+
+# CRM → DB only
+/usr/bin/php cron/test_all_sync.php --crm
+
+# One SKU test
+/usr/bin/php cron/test_all_sync.php --sku=21026
+```
+
 ### 5. Webhooks
 
 | Platform | Event | URL |
