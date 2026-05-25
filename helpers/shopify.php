@@ -308,6 +308,12 @@ function syncShopifyInventory(?array $products = null): array
 
     // Rebuild full SKU map every sync (paginated)
     loadShopifyInventoryCache(true);
+    $shopifySkuCount = count($GLOBALS['_shopify_inventory_cache']);
+    logSync("Shopify variants in store: {$shopifySkuCount} | CRM rows to sync: " . count($products));
+    if (php_sapi_name() === 'cli') {
+        echo "Shopify variant SKUs loaded: {$shopifySkuCount}\n";
+        echo "CRM rows in DB: " . count($products) . " (only matching SKUs will update)\n";
+    }
 
     $total = count($products);
     $success = 0;
@@ -342,6 +348,8 @@ function syncShopifyInventory(?array $products = null): array
         usleep(250000);
     }
 
+    // MySQL may drop idle connections during long Shopify API runs (~10+ min)
+    dbReconnect();
     updateSyncMeta('last_shopify_sync');
     $failed = $notInShopify + $apiFailed;
     logSync("Shopify sync done: {$success} updated, {$notInShopify} SKU not in Shopify, {$apiFailed} API errors");

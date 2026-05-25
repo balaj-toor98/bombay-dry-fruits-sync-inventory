@@ -9,12 +9,26 @@ declare(strict_types=1);
 $GLOBALS['_db_connection'] = null;
 
 /**
- * Get shared mysqli connection
+ * Drop connection so next getDB() creates a fresh one (after long API-only work)
+ */
+function dbReconnect(): void
+{
+    if ($GLOBALS['_db_connection'] instanceof mysqli) {
+        @$GLOBALS['_db_connection']->close();
+    }
+    $GLOBALS['_db_connection'] = null;
+}
+
+/**
+ * Get shared mysqli connection (auto-reconnect if MySQL closed idle connection)
  */
 function getDB(): mysqli
 {
     if ($GLOBALS['_db_connection'] instanceof mysqli) {
-        return $GLOBALS['_db_connection'];
+        if (@$GLOBALS['_db_connection']->ping()) {
+            return $GLOBALS['_db_connection'];
+        }
+        dbReconnect();
     }
 
     $db = new mysqli(DB_HOST, DB_USER, DB_PASS, DB_NAME);
