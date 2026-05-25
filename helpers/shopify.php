@@ -59,6 +59,14 @@ function normalizeSku(string $sku): string
 }
 
 /**
+ * Cache array key — prefix prevents PHP casting "21026" to int array key
+ */
+function shopifyCacheKey(string $sku): string
+{
+    return 'sku:' . normalizeSku($sku);
+}
+
+/**
  * SKU → inventory_item_id cache (all pages)
  * @var array<string, int>
  */
@@ -108,7 +116,7 @@ function loadShopifyInventoryCache(bool $forceReload = false): void
                 $variantSku = normalizeSku((string) ($variant['sku'] ?? ''));
                 $invId = (int) ($variant['inventory_item_id'] ?? 0);
                 if ($variantSku !== '' && $invId > 0) {
-                    $GLOBALS['_shopify_inventory_cache'][$variantSku] = $invId;
+                    $GLOBALS['_shopify_inventory_cache'][shopifyCacheKey($variantSku)] = $invId;
                     $variantCount++;
                 }
             }
@@ -129,13 +137,16 @@ function getShopifyInventoryItemIdBySku(string $sku): ?int
     $sku = normalizeSku($sku);
     loadShopifyInventoryCache();
 
-    if (isset($GLOBALS['_shopify_inventory_cache'][$sku])) {
-        return (int) $GLOBALS['_shopify_inventory_cache'][$sku];
+    $cacheKey = shopifyCacheKey($sku);
+    if (isset($GLOBALS['_shopify_inventory_cache'][$cacheKey])) {
+        return (int) $GLOBALS['_shopify_inventory_cache'][$cacheKey];
     }
 
     // Case-insensitive fallback
-    foreach ($GLOBALS['_shopify_inventory_cache'] as $cachedSku => $invId) {
-        if (strcasecmp($cachedSku, $sku) === 0) {
+    foreach ($GLOBALS['_shopify_inventory_cache'] as $cachedKey => $invId) {
+        if (str_starts_with((string) $cachedKey, 'sku:')
+            && strcasecmp(substr((string) $cachedKey, 4), $sku) === 0
+        ) {
             return (int) $invId;
         }
     }
@@ -146,10 +157,10 @@ function getShopifyInventoryItemIdBySku(string $sku): ?int
 /**
  * Ensure inventory item is connected to configured location
  */
-function connectShopifyInventoryToLocation(int $inventoryItemId): bool
+function connectShopifyInventoryToLocation(int $inventoryItemId, int $locationId): bool
 {
     $response = shopifyRequest('POST', 'inventory_levels/connect.json', [
-        'location_id' => SHOPIFY_LOCATION_ID,
+        'location_id' => $locationId,
         'inventory_item_id' => $inventoryItemId,
     ]);
 
@@ -157,17 +168,60 @@ function connectShopifyInventoryToLocation(int $inventoryItemId): bool
         return true;
     }
 
-    // Already connected or minor issue
     if (in_array($response['status'], [422, 200], true)) {
         return true;
     }
 
-    logWarning("Shopify connect inventory {$inventoryItemId}: HTTP {$response['status']} — {$response['body']}");
+    logWarning("Shopify connect inventory {$inventoryItemId} @{$locationId}: HTTP {$response['status']}");
     return false;
 }
 
 /**
- * Set inventory level for one SKU
+ * GET inventory levels for one item (all locations)
+ * @return array<int, array{location_id: int, available: int}>
+ */
+function getShopifyInventoryLevels(int $inventoryItemId): array
+{
+    $endpoint = 'inventory_levels.json?inventory_item_ids=' . $inventoryItemId;
+    $response = shopifyRequest('GET', $endpoint);
+
+    if (!$response['success'] || !is_array($response['json']['inventory_levels'] ?? null)) {
+        return [];
+    }
+
+    $levels = [];
+    foreach ($response['json']['inventory_levels'] as $row) {
+        $levels[] = [
+            'location_id' => (int) ($row['location_id'] ?? 0),
+            'available' => (int) ($row['available'] ?? 0),
+        ];
+    }
+
+    return $levels;
+}
+
+/**
+ * SET absolute available qty at one location (NOT add — replaces value)
+ */
+function setShopifyInventoryAtLocation(int $inventoryItemId, int $locationId, int $available): bool
+{
+    connectShopifyInventoryToLocation($inventoryItemId, $locationId);
+
+    $available = max(0, $available);
+    $response = shopifyRequest('POST', 'inventory_levels/set.json', [
+        'location_id' => $locationId,
+        'inventory_item_id' => $inventoryItemId,
+        'available' => $available,
+    ]);
+
+    return $response['success'];
+}
+
+/**
+ * Set inventory for one SKU from API/DB stock (absolute, not additive)
+ *
+ * If store has multiple locations, Shopify UI may SUM them (e.g. 50 + 20 = 70).
+ * SHOPIFY_ZERO_OTHER_LOCATIONS sets non-primary locations to 0.
  */
 function setShopifyInventoryBySku(string $sku, int $quantity): bool
 {
@@ -179,21 +233,46 @@ function setShopifyInventoryBySku(string $sku, int $quantity): bool
         return false;
     }
 
-    connectShopifyInventoryToLocation($inventoryItemId);
+    $targetQty = max(0, $quantity);
+    $primaryLocation = (int) SHOPIFY_LOCATION_ID;
+    $zeroOthers = defined('SHOPIFY_ZERO_OTHER_LOCATIONS') && SHOPIFY_ZERO_OTHER_LOCATIONS;
 
-    $available = max(0, $quantity);
-    $response = shopifyRequest('POST', 'inventory_levels/set.json', [
-        'location_id' => SHOPIFY_LOCATION_ID,
-        'inventory_item_id' => $inventoryItemId,
-        'available' => $available,
-    ]);
+    $levelsBefore = getShopifyInventoryLevels($inventoryItemId);
+    if (count($levelsBefore) > 0) {
+        $parts = [];
+        foreach ($levelsBefore as $lv) {
+            $parts[] = "loc{$lv['location_id']}={$lv['available']}";
+        }
+        logSync("Shopify SKU {$sku} BEFORE: " . implode(', ', $parts));
+    }
 
-    if (!$response['success']) {
-        logError("Shopify inventory set failed for SKU {$sku} (qty {$available}): HTTP {$response['status']} — {$response['body']}");
+    // Optional: zero stock at all other locations (prevents 50+20=70 total in admin)
+    if ($zeroOthers) {
+        $levels = getShopifyInventoryLevels($inventoryItemId);
+        foreach ($levels as $lv) {
+            if ($lv['location_id'] !== $primaryLocation && $lv['available'] !== 0) {
+                if (!setShopifyInventoryAtLocation($inventoryItemId, $lv['location_id'], 0)) {
+                    logWarning("Shopify: could not zero location {$lv['location_id']} for SKU {$sku}");
+                }
+                usleep(150000);
+            }
+        }
+    }
+
+    if (!setShopifyInventoryAtLocation($inventoryItemId, $primaryLocation, $targetQty)) {
+        logError("Shopify inventory SET failed for SKU {$sku} → {$targetQty} at location {$primaryLocation}");
         return false;
     }
 
-    logSync("Shopify inventory set OK: SKU {$sku} → {$available}");
+    $levelsAfter = getShopifyInventoryLevels($inventoryItemId);
+    $parts = [];
+    $sum = 0;
+    foreach ($levelsAfter as $lv) {
+        $parts[] = "loc{$lv['location_id']}={$lv['available']}";
+        $sum += $lv['available'];
+    }
+    logSync("Shopify SKU {$sku} SET to {$targetQty} @ loc{$primaryLocation}. AFTER: " . implode(', ', $parts) . " (sum={$sum})");
+
     return true;
 }
 
@@ -336,8 +415,9 @@ function getShopifyVariantIdBySku(string $sku): ?int
 {
     $sku = normalizeSku($sku);
 
-    if (isset($GLOBALS['_shopify_variant_cache'][$sku])) {
-        return $GLOBALS['_shopify_variant_cache'][$sku];
+    $cacheKey = shopifyCacheKey($sku);
+    if (isset($GLOBALS['_shopify_variant_cache'][$cacheKey])) {
+        return $GLOBALS['_shopify_variant_cache'][$cacheKey];
     }
 
     $url = shopifyApiUrl('products.json?limit=250&fields=id,variants');
@@ -356,7 +436,7 @@ function getShopifyVariantIdBySku(string $sku): ?int
                 $variantSku = normalizeSku((string) ($variant['sku'] ?? ''));
                 $variantId = (int) ($variant['id'] ?? 0);
                 if ($variantSku !== '' && $variantId > 0) {
-                    $GLOBALS['_shopify_variant_cache'][$variantSku] = $variantId;
+                    $GLOBALS['_shopify_variant_cache'][shopifyCacheKey($variantSku)] = $variantId;
                     if (strcasecmp($variantSku, $sku) === 0) {
                         return $variantId;
                     }
