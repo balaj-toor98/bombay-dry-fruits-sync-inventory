@@ -29,6 +29,8 @@ define('SHOPIFY_SHOP', 'your-store.myshopify.com');
 define('SHOPIFY_ACCESS_TOKEN', 'shpat_xxxxxxxx');
 define('SHOPIFY_API_VERSION', '2024-01');
 define('SHOPIFY_LOCATION_ID', 12345678901);
+// When true: set other locations to 0 so total stock = API value (fixes 50+20=70 multi-location issue)
+define('SHOPIFY_ZERO_OTHER_LOCATIONS', true);
 define('SHOPIFY_WEBHOOK_SECRET', 'whsec_xxxxxxxx');
 
 // --- Foodpanda Partner API ---

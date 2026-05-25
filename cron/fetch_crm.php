@@ -20,10 +20,11 @@ try {
     $foodpandaResult = syncFoodpandaInventory();
 
     $summary = sprintf(
-        'CRM cron complete: %d saved, Shopify %d/%d, Foodpanda %d sent',
+        'CRM cron complete: %d saved, Shopify %d updated (%d not in store, %d errors), Foodpanda %d sent',
         $saved,
         $shopifyResult['success'],
-        $shopifyResult['failed'],
+        $shopifyResult['not_in_shopify'] ?? 0,
+        $shopifyResult['api_errors'] ?? 0,
         $foodpandaResult['success']
     );
 

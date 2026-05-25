@@ -79,6 +79,12 @@ if (defined('APP_ENV') && APP_ENV === 'development') {
     error_log('Config loaded from: ' . $loadedFrom);
 }
 
+// Full sync (2500+ SKUs) can run 30–90 minutes — avoid CLI/cron timeout
+if (php_sapi_name() === 'cli') {
+    @set_time_limit(0);
+    @ini_set('memory_limit', '512M');
+}
+
 require_once __DIR__ . '/database.php';
 require_once __DIR__ . '/logger.php';
 require_once __DIR__ . '/http.php';

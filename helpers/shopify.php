@@ -223,27 +223,43 @@ function setShopifyInventoryAtLocation(int $inventoryItemId, int $locationId, in
  * If store has multiple locations, Shopify UI may SUM them (e.g. 50 + 20 = 70).
  * SHOPIFY_ZERO_OTHER_LOCATIONS sets non-primary locations to 0.
  */
-function setShopifyInventoryBySku(string $sku, int $quantity): bool
+/**
+ * @return 'ok'|'not_found'|'error'
+ */
+function setShopifyInventoryBySku(string $sku, int $quantity, bool $verbose = false): bool
+{
+    $result = setShopifyInventoryBySkuDetailed($sku, $quantity, $verbose);
+    return $result === 'ok';
+}
+
+/**
+ * @return 'ok'|'not_found'|'error'
+ */
+function setShopifyInventoryBySkuDetailed(string $sku, int $quantity, bool $verbose = false): string
 {
     $sku = normalizeSku($sku);
     $inventoryItemId = getShopifyInventoryItemIdBySku($sku);
 
     if ($inventoryItemId === null) {
-        logWarning("Shopify: SKU not found in store catalog: {$sku}");
-        return false;
+        if ($verbose) {
+            logWarning("Shopify: SKU not found in store catalog: {$sku}");
+        }
+        return 'not_found';
     }
 
     $targetQty = max(0, $quantity);
     $primaryLocation = (int) SHOPIFY_LOCATION_ID;
     $zeroOthers = defined('SHOPIFY_ZERO_OTHER_LOCATIONS') && SHOPIFY_ZERO_OTHER_LOCATIONS;
 
-    $levelsBefore = getShopifyInventoryLevels($inventoryItemId);
-    if (count($levelsBefore) > 0) {
-        $parts = [];
-        foreach ($levelsBefore as $lv) {
-            $parts[] = "loc{$lv['location_id']}={$lv['available']}";
+    if ($verbose) {
+        $levelsBefore = getShopifyInventoryLevels($inventoryItemId);
+        if (count($levelsBefore) > 0) {
+            $parts = [];
+            foreach ($levelsBefore as $lv) {
+                $parts[] = "loc{$lv['location_id']}={$lv['available']}";
+            }
+            logSync("Shopify SKU {$sku} BEFORE: " . implode(', ', $parts));
         }
-        logSync("Shopify SKU {$sku} BEFORE: " . implode(', ', $parts));
     }
 
     // Optional: zero stock at all other locations (prevents 50+20=70 total in admin)
@@ -261,19 +277,21 @@ function setShopifyInventoryBySku(string $sku, int $quantity): bool
 
     if (!setShopifyInventoryAtLocation($inventoryItemId, $primaryLocation, $targetQty)) {
         logError("Shopify inventory SET failed for SKU {$sku} → {$targetQty} at location {$primaryLocation}");
-        return false;
+        return 'error';
     }
 
-    $levelsAfter = getShopifyInventoryLevels($inventoryItemId);
-    $parts = [];
-    $sum = 0;
-    foreach ($levelsAfter as $lv) {
-        $parts[] = "loc{$lv['location_id']}={$lv['available']}";
-        $sum += $lv['available'];
+    if ($verbose) {
+        $levelsAfter = getShopifyInventoryLevels($inventoryItemId);
+        $parts = [];
+        $sum = 0;
+        foreach ($levelsAfter as $lv) {
+            $parts[] = "loc{$lv['location_id']}={$lv['available']}";
+            $sum += $lv['available'];
+        }
+        logSync("Shopify SKU {$sku} SET to {$targetQty} @ loc{$primaryLocation}. AFTER: " . implode(', ', $parts) . " (sum={$sum})");
     }
-    logSync("Shopify SKU {$sku} SET to {$targetQty} @ loc{$primaryLocation}. AFTER: " . implode(', ', $parts) . " (sum={$sum})");
 
-    return true;
+    return 'ok';
 }
 
 /**
@@ -291,28 +309,50 @@ function syncShopifyInventory(?array $products = null): array
     // Rebuild full SKU map every sync (paginated)
     loadShopifyInventoryCache(true);
 
+    $total = count($products);
     $success = 0;
-    $failed = 0;
+    $notInShopify = 0;
+    $apiFailed = 0;
+    $processed = 0;
 
-    logSync('Starting Shopify inventory sync for ' . count($products) . ' products');
+    logSync('Starting Shopify inventory sync for ' . $total . ' products (may take 30–90 min)');
 
     foreach ($products as $product) {
         $sku = normalizeSku((string) $product['sku']);
         $stock = (int) $product['stock'];
+        $processed++;
 
-        if (setShopifyInventoryBySku($sku, $stock)) {
+        $result = setShopifyInventoryBySkuDetailed($sku, $stock, false);
+
+        if ($result === 'ok') {
             $success++;
+        } elseif ($result === 'not_found') {
+            $notInShopify++;
         } else {
-            $failed++;
+            $apiFailed++;
+        }
+
+        if ($processed % 100 === 0 || $processed === $total) {
+            logSync("Shopify progress: {$processed}/{$total} (ok={$success}, not_in_shopify={$notInShopify}, errors={$apiFailed})");
+            if (php_sapi_name() === 'cli') {
+                echo "  … {$processed}/{$total} ok={$success} missing={$notInShopify} errors={$apiFailed}\n";
+            }
         }
 
         usleep(250000);
     }
 
     updateSyncMeta('last_shopify_sync');
-    logSync("Shopify sync done: {$success} ok, {$failed} failed");
+    $failed = $notInShopify + $apiFailed;
+    logSync("Shopify sync done: {$success} updated, {$notInShopify} SKU not in Shopify, {$apiFailed} API errors");
 
-    return ['success' => $success, 'failed' => $failed];
+    return [
+        'success' => $success,
+        'failed' => $failed,
+        'not_in_shopify' => $notInShopify,
+        'api_errors' => $apiFailed,
+        'total' => $total,
+    ];
 }
 
 /**

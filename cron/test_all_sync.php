@@ -145,8 +145,10 @@ function runTestShopifyOnly(): bool
         echo "WARNING: DB empty. Run full test or --crm first.\n";
     }
     $result = syncShopifyInventory();
-    echo "Shopify OK: {$result['success']}, failed: {$result['failed']}\n";
-    return $result['failed'] === 0 || $result['success'] > 0;
+    echo "Shopify updated: {$result['success']}/{$result['total']}\n";
+    echo "Not in Shopify (SKU mismatch): {$result['not_in_shopify']}\n";
+    echo "API errors: {$result['api_errors']}\n";
+    return $result['success'] > 0;
 }
 
 function runTestFoodpandaOnly(): bool
@@ -173,7 +175,7 @@ function runTestSingleSku(string $sku): bool
     echo "DB stock: {$row['stock']} | {$row['name']}\n";
     echo 'Primary location: ' . SHOPIFY_LOCATION_ID . "\n";
     echo 'Zero other locations: ' . (defined('SHOPIFY_ZERO_OTHER_LOCATIONS') && SHOPIFY_ZERO_OTHER_LOCATIONS ? 'yes' : 'no') . "\n";
-    $ok = setShopifyInventoryBySku($sku, (int) $row['stock']);
+    $ok = setShopifyInventoryBySku($sku, (int) $row['stock'], true);
     echo $ok ? "SUCCESS\n" : "FAILED — check logs\n";
     return $ok;
 }
@@ -200,8 +202,9 @@ function runTestFullPipeline(): bool
     printStep('2/3 MySQL → Shopify');
     try {
         $shopify = syncShopifyInventory();
-        echo "Shopify OK: {$shopify['success']}, failed: {$shopify['failed']}\n";
-        if ($shopify['failed'] > 0) {
+        echo "Shopify updated: {$shopify['success']}/{$shopify['total']}\n";
+        echo "Not in Shopify: {$shopify['not_in_shopify']} | API errors: {$shopify['api_errors']}\n";
+        if ($shopify['api_errors'] > 0) {
             $ok = false;
         }
     } catch (Throwable $e) {

@@ -44,6 +44,6 @@ if ($invId === null) {
 echo "Shopify inventory_item_id: {$invId}\n";
 echo "Location ID: " . SHOPIFY_LOCATION_ID . "\n";
 
-$ok = setShopifyInventoryBySku($sku, (int) $row['stock']);
+    $ok = setShopifyInventoryBySku($sku, (int) $row['stock'], true);
 echo $ok ? "SUCCESS: inventory updated.\n" : "FAILED: see logs table.\n";
 exit($ok ? 0 : 1);
