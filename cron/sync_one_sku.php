@@ -31,19 +31,26 @@ if (!$row) {
     exit(1);
 }
 
-echo "DB: SKU={$row['sku']} stock={$row['stock']} name={$row['name']}\n";
+echo "DB: SKU={$row['sku']} stock={$row['stock']} price={$row['price']} name={$row['name']}\n";
 
 loadShopifyInventoryCache(true);
-$invId = getShopifyInventoryItemIdBySku($sku);
+$variant = resolveShopifyVariant($sku);
 
-if ($invId === null) {
-    echo "ERROR: SKU {$sku} not found in Shopify (check SKU field on variant).\n";
+if ($variant === null) {
+    echo "ERROR: barcode {$sku} not found in Shopify (check variant SKU or barcode field).\n";
     exit(1);
 }
 
-echo "Shopify inventory_item_id: {$invId}\n";
+echo "Shopify variant_id: {$variant['variant_id']} | inventory_item_id: {$variant['inventory_item_id']}\n";
+echo "Shopify current price: {$variant['price']} | matched via: "
+    . ($variant['sku'] === $sku ? 'SKU' : ($variant['barcode'] === $sku ? 'barcode' : 'case-insensitive'))
+    . "\n";
 echo "Location ID: " . SHOPIFY_LOCATION_ID . "\n";
 
-    $ok = setShopifyInventoryBySku($sku, (int) $row['stock'], true);
+$result = syncShopifyProductByBarcode($sku, (int) $row['stock'], (float) $row['price'], true);
+$ok = $result['inventory'] === 'ok';
+
+echo "Inventory: {$result['inventory']}\n";
+echo "Price: {$result['price']}\n";
 echo $ok ? "SUCCESS: inventory updated.\n" : "FAILED: see logs table.\n";
 exit($ok ? 0 : 1);

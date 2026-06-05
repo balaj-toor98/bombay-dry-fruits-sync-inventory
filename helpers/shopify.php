@@ -67,11 +67,11 @@ function shopifyCacheKey(string $sku): string
 }
 
 /**
- * SKU → inventory_item_id cache (all pages)
- * @var array<string, int>
+ * SKU/barcode → variant data cache (all pages)
+ * @var array<string, array{variant_id: int, inventory_item_id: int, price: float, sku: string, barcode: string}>
  */
-$GLOBALS['_shopify_inventory_cache'] = [];
-$GLOBALS['_shopify_inventory_cache_loaded'] = false;
+$GLOBALS['_shopify_variant_cache'] = [];
+$GLOBALS['_shopify_variant_cache_loaded'] = false;
 
 /**
  * Parse Shopify Link header for next page URL
@@ -89,15 +89,32 @@ function shopifyNextPageUrl(array $headers): ?string
 }
 
 /**
- * Load ALL Shopify variant SKUs (paginated — fixes missing SKUs after product #250)
+ * Index one variant in the cache by SKU and/or barcode
+ */
+function shopifyCacheVariant(array $variantData): void
+{
+    $sku = $variantData['sku'];
+    $barcode = $variantData['barcode'];
+
+    if ($sku !== '') {
+        $GLOBALS['_shopify_variant_cache'][shopifyCacheKey($sku)] = $variantData;
+    }
+    if ($barcode !== '' && $barcode !== $sku) {
+        $GLOBALS['_shopify_variant_cache']['barcode:' . $barcode] = $variantData;
+    }
+}
+
+/**
+ * Load ALL Shopify products + variants (paginated — fixes missing SKUs after product #250)
+ * Indexes each variant by SKU and barcode for CRM ProductBarcode matching.
  */
 function loadShopifyInventoryCache(bool $forceReload = false): void
 {
-    if ($GLOBALS['_shopify_inventory_cache_loaded'] && !$forceReload) {
+    if ($GLOBALS['_shopify_variant_cache_loaded'] && !$forceReload) {
         return;
     }
 
-    $GLOBALS['_shopify_inventory_cache'] = [];
+    $GLOBALS['_shopify_variant_cache'] = [];
     $url = shopifyApiUrl('products.json?limit=250&fields=id,variants');
     $pages = 0;
     $variantCount = 0;
@@ -114,44 +131,90 @@ function loadShopifyInventoryCache(bool $forceReload = false): void
         foreach ($response['json']['products'] as $product) {
             foreach ($product['variants'] ?? [] as $variant) {
                 $variantSku = normalizeSku((string) ($variant['sku'] ?? ''));
+                $variantBarcode = normalizeSku((string) ($variant['barcode'] ?? ''));
+                $variantId = (int) ($variant['id'] ?? 0);
                 $invId = (int) ($variant['inventory_item_id'] ?? 0);
-                if ($variantSku !== '' && $invId > 0) {
-                    $GLOBALS['_shopify_inventory_cache'][shopifyCacheKey($variantSku)] = $invId;
-                    $variantCount++;
+
+                if ($invId <= 0 || $variantId <= 0) {
+                    continue;
                 }
+
+                // Simple products often have barcode but empty SKU — still indexable
+                if ($variantSku === '' && $variantBarcode === '') {
+                    continue;
+                }
+
+                $variantData = [
+                    'variant_id' => $variantId,
+                    'inventory_item_id' => $invId,
+                    'price' => round((float) ($variant['price'] ?? 0), 2),
+                    'sku' => $variantSku,
+                    'barcode' => $variantBarcode,
+                ];
+
+                shopifyCacheVariant($variantData);
+                $variantCount++;
             }
         }
 
         $url = shopifyNextPageUrl($response['headers']);
     }
 
-    $GLOBALS['_shopify_inventory_cache_loaded'] = true;
-    logSync("Shopify SKU cache loaded: {$variantCount} variants from {$pages} page(s)");
+    $GLOBALS['_shopify_variant_cache_loaded'] = true;
+    logSync("Shopify variant cache loaded: {$variantCount} variants from {$pages} page(s)");
 }
 
 /**
- * Resolve Shopify inventory_item_id by variant SKU
+ * Resolve Shopify variant by CRM barcode — matches variant SKU first, then variant barcode
+ *
+ * @return array{variant_id: int, inventory_item_id: int, price: float, sku: string, barcode: string}|null
  */
-function getShopifyInventoryItemIdBySku(string $sku): ?int
+function resolveShopifyVariant(string $crmBarcode): ?array
 {
-    $sku = normalizeSku($sku);
-    loadShopifyInventoryCache();
-
-    $cacheKey = shopifyCacheKey($sku);
-    if (isset($GLOBALS['_shopify_inventory_cache'][$cacheKey])) {
-        return (int) $GLOBALS['_shopify_inventory_cache'][$cacheKey];
+    $crmBarcode = normalizeSku($crmBarcode);
+    if ($crmBarcode === '') {
+        return null;
     }
 
-    // Case-insensitive fallback
-    foreach ($GLOBALS['_shopify_inventory_cache'] as $cachedKey => $invId) {
-        if (str_starts_with((string) $cachedKey, 'sku:')
-            && strcasecmp(substr((string) $cachedKey, 4), $sku) === 0
+    loadShopifyInventoryCache();
+
+    $cache = $GLOBALS['_shopify_variant_cache'];
+
+    $skuKey = shopifyCacheKey($crmBarcode);
+    if (isset($cache[$skuKey])) {
+        return $cache[$skuKey];
+    }
+
+    $barcodeKey = 'barcode:' . $crmBarcode;
+    if (isset($cache[$barcodeKey])) {
+        return $cache[$barcodeKey];
+    }
+
+    // Case-insensitive fallback (SKU then barcode)
+    foreach ($cache as $key => $variantData) {
+        if (str_starts_with((string) $key, 'sku:')
+            && strcasecmp(substr((string) $key, 4), $crmBarcode) === 0
         ) {
-            return (int) $invId;
+            return $variantData;
+        }
+        if (str_starts_with((string) $key, 'barcode:')
+            && strcasecmp(substr((string) $key, 8), $crmBarcode) === 0
+        ) {
+            return $variantData;
         }
     }
 
     return null;
+}
+
+/**
+ * Resolve Shopify inventory_item_id by CRM barcode (variant SKU or barcode)
+ */
+function getShopifyInventoryItemIdBySku(string $sku): ?int
+{
+    $variant = resolveShopifyVariant($sku);
+
+    return $variant !== null ? $variant['inventory_item_id'] : null;
 }
 
 /**
@@ -238,11 +301,12 @@ function setShopifyInventoryBySku(string $sku, int $quantity, bool $verbose = fa
 function setShopifyInventoryBySkuDetailed(string $sku, int $quantity, bool $verbose = false): string
 {
     $sku = normalizeSku($sku);
-    $inventoryItemId = getShopifyInventoryItemIdBySku($sku);
+    $variant = resolveShopifyVariant($sku);
+    $inventoryItemId = $variant['inventory_item_id'] ?? null;
 
     if ($inventoryItemId === null) {
         if ($verbose) {
-            logWarning("Shopify: SKU not found in store catalog: {$sku}");
+            logWarning("Shopify: barcode not found in store catalog (checked SKU + barcode): {$sku}");
         }
         return 'not_found';
     }
@@ -295,10 +359,76 @@ function setShopifyInventoryBySkuDetailed(string $sku, int $quantity, bool $verb
 }
 
 /**
- * Sync all (or filtered) products to Shopify inventory
+ * Update Shopify variant price (skips if unchanged)
+ *
+ * @return 'ok'|'skipped'|'error'
+ */
+function updateShopifyVariantPrice(int $variantId, float $price, ?float $currentPrice = null): string
+{
+    $price = round(max(0, $price), 2);
+
+    if ($price <= 0) {
+        return 'skipped';
+    }
+
+    if ($currentPrice !== null && abs($currentPrice - $price) < 0.01) {
+        return 'skipped';
+    }
+
+    $response = shopifyRequest('PUT', 'variants/' . $variantId . '.json', [
+        'variant' => [
+            'id' => $variantId,
+            'price' => number_format($price, 2, '.', ''),
+        ],
+    ]);
+
+    if (!$response['success']) {
+        logError("Shopify price update failed for variant {$variantId} → {$price}: HTTP {$response['status']}");
+        return 'error';
+    }
+
+    return 'ok';
+}
+
+/**
+ * Update inventory + price for one CRM barcode (matches Shopify SKU or barcode)
+ *
+ * @return array{inventory: 'ok'|'not_found'|'error', price: 'ok'|'skipped'|'not_found'|'error'}
+ */
+function syncShopifyProductByBarcode(string $crmBarcode, int $stock, float $price, bool $verbose = false): array
+{
+    $crmBarcode = normalizeSku($crmBarcode);
+    $variant = resolveShopifyVariant($crmBarcode);
+
+    if ($variant === null) {
+        if ($verbose) {
+            logWarning("Shopify: barcode not found (checked SKU + barcode): {$crmBarcode}");
+        }
+        return ['inventory' => 'not_found', 'price' => 'not_found'];
+    }
+
+    $inventoryResult = setShopifyInventoryBySkuDetailed($crmBarcode, $stock, $verbose);
+    $priceResult = updateShopifyVariantPrice(
+        $variant['variant_id'],
+        $price,
+        $variant['price']
+    );
+
+    if ($verbose && $priceResult === 'ok') {
+        logSync("Shopify price {$crmBarcode}: {$variant['price']} → {$price}");
+    }
+
+    return ['inventory' => $inventoryResult, 'price' => $priceResult];
+}
+
+/**
+ * Sync all (or filtered) products to Shopify — inventory + prices
+ *
+ * Fetches all Shopify products/variants once, maps CRM barcodes to variant SKU or barcode,
+ * then updates stock and price per matched row.
  *
  * @param array<int, array<string, mixed>>|null $products null = all from DB
- * @return array{success: int, failed: int}
+ * @return array{success: int, failed: int, not_in_shopify: int, api_errors: int, price_updated: int, price_skipped: int, price_errors: int, total: int}
  */
 function syncShopifyInventory(?array $products = null): array
 {
@@ -306,42 +436,54 @@ function syncShopifyInventory(?array $products = null): array
         $products = getAllProductsForSync();
     }
 
-    // Rebuild full SKU map every sync (paginated)
+    // Rebuild full variant map every sync (paginated)
     loadShopifyInventoryCache(true);
-    $shopifySkuCount = count($GLOBALS['_shopify_inventory_cache']);
-    logSync("Shopify variants in store: {$shopifySkuCount} | CRM rows to sync: " . count($products));
+    $shopifyVariantCount = count($GLOBALS['_shopify_variant_cache']);
+    logSync("Shopify variants in store: {$shopifyVariantCount} | CRM rows to sync: " . count($products));
     if (php_sapi_name() === 'cli') {
-        echo "Shopify variant SKUs loaded: {$shopifySkuCount}\n";
-        echo "CRM rows in DB: " . count($products) . " (only matching SKUs will update)\n";
+        echo "Shopify variants loaded: {$shopifyVariantCount}\n";
+        echo "CRM rows in DB: " . count($products) . " (matched by SKU or barcode)\n";
     }
 
     $total = count($products);
     $success = 0;
     $notInShopify = 0;
     $apiFailed = 0;
+    $priceUpdated = 0;
+    $priceSkipped = 0;
+    $priceErrors = 0;
     $processed = 0;
 
-    logSync('Starting Shopify inventory sync for ' . $total . ' products (may take 30–90 min)');
+    logSync('Starting Shopify inventory + price sync for ' . $total . ' products (may take 30–90 min)');
 
     foreach ($products as $product) {
         $sku = normalizeSku((string) $product['sku']);
         $stock = (int) $product['stock'];
+        $price = (float) ($product['price'] ?? 0);
         $processed++;
 
-        $result = setShopifyInventoryBySkuDetailed($sku, $stock, false);
+        $result = syncShopifyProductByBarcode($sku, $stock, $price, false);
 
-        if ($result === 'ok') {
+        if ($result['inventory'] === 'ok') {
             $success++;
-        } elseif ($result === 'not_found') {
+        } elseif ($result['inventory'] === 'not_found') {
             $notInShopify++;
         } else {
             $apiFailed++;
         }
 
+        if ($result['price'] === 'ok') {
+            $priceUpdated++;
+        } elseif ($result['price'] === 'skipped') {
+            $priceSkipped++;
+        } elseif ($result['price'] === 'error') {
+            $priceErrors++;
+        }
+
         if ($processed % 100 === 0 || $processed === $total) {
-            logSync("Shopify progress: {$processed}/{$total} (ok={$success}, not_in_shopify={$notInShopify}, errors={$apiFailed})");
+            logSync("Shopify progress: {$processed}/{$total} (stock_ok={$success}, not_in_shopify={$notInShopify}, stock_errors={$apiFailed}, price_updated={$priceUpdated})");
             if (php_sapi_name() === 'cli') {
-                echo "  … {$processed}/{$total} ok={$success} missing={$notInShopify} errors={$apiFailed}\n";
+                echo "  … {$processed}/{$total} stock_ok={$success} missing={$notInShopify} price_updated={$priceUpdated}\n";
             }
         }
 
@@ -352,13 +494,16 @@ function syncShopifyInventory(?array $products = null): array
     dbReconnect();
     updateSyncMeta('last_shopify_sync');
     $failed = $notInShopify + $apiFailed;
-    logSync("Shopify sync done: {$success} updated, {$notInShopify} SKU not in Shopify, {$apiFailed} API errors");
+    logSync("Shopify sync done: {$success} stock updated, {$priceUpdated} prices updated, {$notInShopify} not in Shopify, {$apiFailed} stock errors, {$priceErrors} price errors");
 
     return [
         'success' => $success,
         'failed' => $failed,
         'not_in_shopify' => $notInShopify,
         'api_errors' => $apiFailed,
+        'price_updated' => $priceUpdated,
+        'price_skipped' => $priceSkipped,
+        'price_errors' => $priceErrors,
         'total' => $total,
     ];
 }
@@ -453,49 +598,14 @@ function createShopifyOrder(array $orderData): array
     return ['success' => true, 'order_id' => $orderId > 0 ? $orderId : null, 'error' => null];
 }
 
-/** @var array<string, int> */
-$GLOBALS['_shopify_variant_cache'] = [];
-
 /**
- * Get variant ID by SKU (uses paginated cache)
+ * Get variant ID by CRM barcode (variant SKU or barcode)
  */
 function getShopifyVariantIdBySku(string $sku): ?int
 {
-    $sku = normalizeSku($sku);
+    $variant = resolveShopifyVariant($sku);
 
-    $cacheKey = shopifyCacheKey($sku);
-    if (isset($GLOBALS['_shopify_variant_cache'][$cacheKey])) {
-        return $GLOBALS['_shopify_variant_cache'][$cacheKey];
-    }
-
-    $url = shopifyApiUrl('products.json?limit=250&fields=id,variants');
-    $pages = 0;
-
-    while ($url !== null && $pages < 200) {
-        $response = shopifyRequest('GET', $url, null, ['include_headers' => true]);
-        $pages++;
-
-        if (!$response['success']) {
-            return null;
-        }
-
-        foreach ($response['json']['products'] ?? [] as $product) {
-            foreach ($product['variants'] ?? [] as $variant) {
-                $variantSku = normalizeSku((string) ($variant['sku'] ?? ''));
-                $variantId = (int) ($variant['id'] ?? 0);
-                if ($variantSku !== '' && $variantId > 0) {
-                    $GLOBALS['_shopify_variant_cache'][shopifyCacheKey($variantSku)] = $variantId;
-                    if (strcasecmp($variantSku, $sku) === 0) {
-                        return $variantId;
-                    }
-                }
-            }
-        }
-
-        $url = shopifyNextPageUrl($response['headers']);
-    }
-
-    return null;
+    return $variant !== null ? $variant['variant_id'] : null;
 }
 
 /**

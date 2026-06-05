@@ -145,9 +145,10 @@ function runTestShopifyOnly(): bool
         echo "WARNING: DB empty. Run full test or --crm first.\n";
     }
     $result = syncShopifyInventory();
-    echo "Shopify updated: {$result['success']}/{$result['total']}\n";
-    echo "Not in Shopify (SKU mismatch): {$result['not_in_shopify']}\n";
-    echo "API errors: {$result['api_errors']}\n";
+    echo "Shopify stock updated: {$result['success']}/{$result['total']}\n";
+    echo "Shopify prices updated: {$result['price_updated']} (skipped: {$result['price_skipped']})\n";
+    echo "Not in Shopify (barcode mismatch): {$result['not_in_shopify']}\n";
+    echo "Stock errors: {$result['api_errors']} | Price errors: {$result['price_errors']}\n";
     return $result['success'] > 0;
 }
 
@@ -172,10 +173,12 @@ function runTestSingleSku(string $sku): bool
         echo "ERROR: SKU not in database. Run full sync or --crm first.\n";
         return false;
     }
-    echo "DB stock: {$row['stock']} | {$row['name']}\n";
+    echo "DB stock: {$row['stock']} | price: {$row['price']} | {$row['name']}\n";
     echo 'Primary location: ' . SHOPIFY_LOCATION_ID . "\n";
     echo 'Zero other locations: ' . (defined('SHOPIFY_ZERO_OTHER_LOCATIONS') && SHOPIFY_ZERO_OTHER_LOCATIONS ? 'yes' : 'no') . "\n";
-    $ok = setShopifyInventoryBySku($sku, (int) $row['stock'], true);
+    $result = syncShopifyProductByBarcode($sku, (int) $row['stock'], (float) $row['price'], true);
+    echo "Inventory: {$result['inventory']} | Price: {$result['price']}\n";
+    $ok = $result['inventory'] === 'ok';
     echo $ok ? "SUCCESS\n" : "FAILED — check logs\n";
     return $ok;
 }
@@ -202,9 +205,10 @@ function runTestFullPipeline(): bool
     printStep('2/3 MySQL → Shopify');
     try {
         $shopify = syncShopifyInventory();
-        echo "Shopify updated: {$shopify['success']}/{$shopify['total']}\n";
-        echo "Not in Shopify: {$shopify['not_in_shopify']} | API errors: {$shopify['api_errors']}\n";
-        if ($shopify['api_errors'] > 0) {
+        echo "Shopify stock updated: {$shopify['success']}/{$shopify['total']}\n";
+        echo "Shopify prices updated: {$shopify['price_updated']}\n";
+        echo "Not in Shopify: {$shopify['not_in_shopify']} | Stock errors: {$shopify['api_errors']} | Price errors: {$shopify['price_errors']}\n";
+        if ($shopify['api_errors'] > 0 || $shopify['price_errors'] > 0) {
             $ok = false;
         }
     } catch (Throwable $e) {
