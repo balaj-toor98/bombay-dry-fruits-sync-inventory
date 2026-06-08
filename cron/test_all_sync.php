@@ -168,15 +168,15 @@ function runTestFoodpandaOnly(): bool
 function runTestSingleSku(string $sku): bool
 {
     printStep("Single SKU → Shopify: {$sku}");
-    $row = dbFetchOne('SELECT sku, name, stock, price FROM products WHERE sku = ? LIMIT 1', 's', [$sku]);
+    $row = dbFetchOne('SELECT sku, name, stock, price, compare_at_price FROM products WHERE sku = ? LIMIT 1', 's', [$sku]);
     if (!$row) {
         echo "ERROR: SKU not in database. Run full sync or --crm first.\n";
         return false;
     }
-    echo "DB stock: {$row['stock']} | price: {$row['price']} | {$row['name']}\n";
+    echo "DB stock: {$row['stock']} | price: {$row['price']} | compare_at: {$row['compare_at_price']} | {$row['name']}\n";
     echo 'Primary location: ' . SHOPIFY_LOCATION_ID . "\n";
     echo 'Zero other locations: ' . (defined('SHOPIFY_ZERO_OTHER_LOCATIONS') && SHOPIFY_ZERO_OTHER_LOCATIONS ? 'yes' : 'no') . "\n";
-    $result = syncShopifyProductByBarcode($sku, (int) $row['stock'], (float) $row['price'], true);
+    $result = syncShopifyProductByBarcode($sku, (int) $row['stock'], (float) $row['price'], (float) $row['compare_at_price'], true);
     echo "Inventory: {$result['inventory']} | Price: {$result['price']}\n";
     $ok = $result['inventory'] === 'ok';
     echo $ok ? "SUCCESS\n" : "FAILED — check logs\n";

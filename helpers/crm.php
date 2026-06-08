@@ -75,6 +75,7 @@ function fetchCRMData(): array
         $stock = max(0, (int) floor($rawStock));
 
         $price = round((float) ($item['ProductSalePrice'] ?? 0), 2);
+        $compareAtPrice = round((float) ($item['ProductRetailPrice'] ?? 0), 2);
 
         $products[] = [
             'product_id' => $productId,
@@ -82,6 +83,7 @@ function fetchCRMData(): array
             'name' => $name,
             'stock' => $stock,
             'price' => $price,
+            'compare_at_price' => $compareAtPrice,
         ];
     }
 
@@ -103,13 +105,14 @@ function saveProductsToDB(array $products): int
     }
 
     $db = getDB();
-    $sql = 'INSERT INTO products (product_id, sku, name, stock, price, last_update)
-            VALUES (?, ?, ?, ?, ?, NOW())
+    $sql = 'INSERT INTO products (product_id, sku, name, stock, price, compare_at_price, last_update)
+            VALUES (?, ?, ?, ?, ?, ?, NOW())
             ON DUPLICATE KEY UPDATE
                 sku = VALUES(sku),
                 name = VALUES(name),
                 stock = VALUES(stock),
                 price = VALUES(price),
+                compare_at_price = VALUES(compare_at_price),
                 last_update = NOW()';
 
     $stmt = $db->prepare($sql);
@@ -124,8 +127,9 @@ function saveProductsToDB(array $products): int
         $name = $p['name'];
         $stock = (int) $p['stock'];
         $price = (float) $p['price'];
+        $compareAtPrice = (float) ($p['compare_at_price'] ?? 0);
 
-        $stmt->bind_param('sssid', $productId, $sku, $name, $stock, $price);
+        $stmt->bind_param('sssidd', $productId, $sku, $name, $stock, $price, $compareAtPrice);
 
         if ($stmt->execute()) {
             $saved++;

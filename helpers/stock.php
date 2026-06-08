@@ -69,7 +69,7 @@ function setStock(string $sku, int $stock): bool
  */
 function getAllProductsForSync(): array
 {
-    return dbFetchAll('SELECT id, product_id, sku, name, stock, price FROM products ORDER BY id ASC');
+    return dbFetchAll('SELECT id, product_id, sku, name, stock, price, compare_at_price FROM products ORDER BY id ASC');
 }
 
 /**
@@ -88,7 +88,7 @@ function getProductsBySkus(array $skus): array
     $types = str_repeat('s', count($skus));
 
     return dbFetchAll(
-        "SELECT id, product_id, sku, name, stock, price FROM products WHERE sku IN ({$placeholders})",
+        "SELECT id, product_id, sku, name, stock, price, compare_at_price FROM products WHERE sku IN ({$placeholders})",
         $types,
         $skus
     );

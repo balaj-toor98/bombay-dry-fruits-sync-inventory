@@ -68,7 +68,7 @@ function shopifyCacheKey(string $sku): string
 
 /**
  * SKU/barcode → variant data cache (all pages)
- * @var array<string, array{variant_id: int, inventory_item_id: int, price: float, sku: string, barcode: string}>
+ * @var array<string, array{variant_id: int, inventory_item_id: int, price: float, compare_at_price: float, sku: string, barcode: string}>
  */
 $GLOBALS['_shopify_variant_cache'] = [];
 $GLOBALS['_shopify_variant_cache_loaded'] = false;
@@ -148,6 +148,7 @@ function loadShopifyInventoryCache(bool $forceReload = false): void
                     'variant_id' => $variantId,
                     'inventory_item_id' => $invId,
                     'price' => round((float) ($variant['price'] ?? 0), 2),
+                    'compare_at_price' => round((float) ($variant['compare_at_price'] ?? 0), 2),
                     'sku' => $variantSku,
                     'barcode' => $variantBarcode,
                 ];
@@ -167,7 +168,7 @@ function loadShopifyInventoryCache(bool $forceReload = false): void
 /**
  * Resolve Shopify variant by CRM barcode — matches variant SKU first, then variant barcode
  *
- * @return array{variant_id: int, inventory_item_id: int, price: float, sku: string, barcode: string}|null
+ * @return array{variant_id: int, inventory_item_id: int, price: float, compare_at_price: float, sku: string, barcode: string}|null
  */
 function resolveShopifyVariant(string $crmBarcode): ?array
 {
@@ -359,31 +360,47 @@ function setShopifyInventoryBySkuDetailed(string $sku, int $quantity, bool $verb
 }
 
 /**
- * Update Shopify variant price (skips if unchanged)
+ * Update Shopify variant price + compare_at_price (skips if both unchanged)
  *
  * @return 'ok'|'skipped'|'error'
  */
-function updateShopifyVariantPrice(int $variantId, float $price, ?float $currentPrice = null): string
-{
+function updateShopifyVariantPricing(
+    int $variantId,
+    float $price,
+    float $compareAtPrice,
+    ?float $currentPrice = null,
+    ?float $currentCompareAtPrice = null
+): string {
     $price = round(max(0, $price), 2);
+    $compareAtPrice = round(max(0, $compareAtPrice), 2);
 
     if ($price <= 0) {
         return 'skipped';
     }
 
-    if ($currentPrice !== null && abs($currentPrice - $price) < 0.01) {
+    $priceSame = $currentPrice !== null && abs($currentPrice - $price) < 0.01;
+    $compareSame = $currentCompareAtPrice !== null && abs($currentCompareAtPrice - $compareAtPrice) < 0.01;
+    if ($priceSame && $compareSame) {
         return 'skipped';
     }
 
+    $variantPayload = [
+        'id' => $variantId,
+        'price' => number_format($price, 2, '.', ''),
+    ];
+
+    if ($compareAtPrice > 0) {
+        $variantPayload['compare_at_price'] = number_format($compareAtPrice, 2, '.', '');
+    } else {
+        $variantPayload['compare_at_price'] = null;
+    }
+
     $response = shopifyRequest('PUT', 'variants/' . $variantId . '.json', [
-        'variant' => [
-            'id' => $variantId,
-            'price' => number_format($price, 2, '.', ''),
-        ],
+        'variant' => $variantPayload,
     ]);
 
     if (!$response['success']) {
-        logError("Shopify price update failed for variant {$variantId} → {$price}: HTTP {$response['status']}");
+        logError("Shopify price update failed for variant {$variantId} → price {$price}, compare_at {$compareAtPrice}: HTTP {$response['status']}");
         return 'error';
     }
 
@@ -395,8 +412,13 @@ function updateShopifyVariantPrice(int $variantId, float $price, ?float $current
  *
  * @return array{inventory: 'ok'|'not_found'|'error', price: 'ok'|'skipped'|'not_found'|'error'}
  */
-function syncShopifyProductByBarcode(string $crmBarcode, int $stock, float $price, bool $verbose = false): array
-{
+function syncShopifyProductByBarcode(
+    string $crmBarcode,
+    int $stock,
+    float $price,
+    float $compareAtPrice = 0,
+    bool $verbose = false
+): array {
     $crmBarcode = normalizeSku($crmBarcode);
     $variant = resolveShopifyVariant($crmBarcode);
 
@@ -408,14 +430,23 @@ function syncShopifyProductByBarcode(string $crmBarcode, int $stock, float $pric
     }
 
     $inventoryResult = setShopifyInventoryBySkuDetailed($crmBarcode, $stock, $verbose);
-    $priceResult = updateShopifyVariantPrice(
+    $priceResult = updateShopifyVariantPricing(
         $variant['variant_id'],
         $price,
-        $variant['price']
+        $compareAtPrice,
+        $variant['price'],
+        $variant['compare_at_price']
     );
 
     if ($verbose && $priceResult === 'ok') {
-        logSync("Shopify price {$crmBarcode}: {$variant['price']} → {$price}");
+        logSync(sprintf(
+            'Shopify price %s: %.2f → %.2f, compare_at %.2f → %.2f',
+            $crmBarcode,
+            $variant['price'],
+            $price,
+            $variant['compare_at_price'],
+            $compareAtPrice
+        ));
     }
 
     return ['inventory' => $inventoryResult, 'price' => $priceResult];
@@ -460,9 +491,10 @@ function syncShopifyInventory(?array $products = null): array
         $sku = normalizeSku((string) $product['sku']);
         $stock = (int) $product['stock'];
         $price = (float) ($product['price'] ?? 0);
+        $compareAtPrice = (float) ($product['compare_at_price'] ?? 0);
         $processed++;
 
-        $result = syncShopifyProductByBarcode($sku, $stock, $price, false);
+        $result = syncShopifyProductByBarcode($sku, $stock, $price, $compareAtPrice, false);
 
         if ($result['inventory'] === 'ok') {
             $success++;
