@@ -89,6 +89,7 @@ require_once __DIR__ . '/logger.php';
 require_once __DIR__ . '/http.php';
 require_once __DIR__ . '/crm.php';
 require_once __DIR__ . '/stock.php';
+require_once __DIR__ . '/order_processing.php';
 require_once __DIR__ . '/shopify.php';
 require_once __DIR__ . '/shopify_metafields.php';
 require_once __DIR__ . '/oos_limit_import.php';

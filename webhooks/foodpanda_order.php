@@ -1,6 +1,11 @@
 <?php
 /**
- * Webhook: Foodpanda order → Create Shopify order + reduce DB stock + sync Shopify inventory
+ * Webhook: Foodpanda order created
+ *
+ *   1. Deduct dashboard (MySQL) stock
+ *   2. Create matching order in Shopify (inventory bypass — we push stock via sync)
+ *   3. Mark Shopify order so shopify_order.php webhook does NOT deduct dashboard again
+ *   4. Sync updated stock to Shopify
  *
  * Register URL in Foodpanda Partner Portal:
  * https://yourdomain.com/webhooks/foodpanda_order.php
@@ -48,7 +53,17 @@ try {
         exit;
     }
 
-    // 1) Create order in Shopify
+    if (!claimOrderProcessing('foodpanda', $orderId)) {
+        logWebhook('Foodpanda order ' . $orderId . ' already processed — skipping duplicate webhook');
+        http_response_code(200);
+        echo json_encode(['status' => 'skipped', 'reason' => 'duplicate']);
+        exit;
+    }
+
+    // 1) Deduct dashboard stock first
+    $affectedSkus = deductOrderStock($lineItems);
+
+    // 2) Create order in Shopify (do not let Shopify deduct inventory — sync handles it)
     $shopifyLineItems = [];
     foreach ($lineItems as $item) {
         $dbProduct = dbFetchOne('SELECT name, price FROM products WHERE sku = ?', 's', [$item['sku']]);
@@ -72,24 +87,24 @@ try {
     ]);
 
     if (!$orderResult['success']) {
+        restoreOrderStock($lineItems);
+        releaseOrderProcessing('foodpanda', $orderId);
         http_response_code(502);
         echo json_encode(['error' => $orderResult['error']]);
         exit;
     }
 
-    // 2) Reduce stock in DB
-    $affectedSkus = [];
-    foreach ($lineItems as $item) {
-        updateStock($item['sku'], -$item['quantity'], 'sku');
-        $affectedSkus[] = $item['sku'];
+    // 3) Block shopify_order.php from deducting dashboard stock for this Shopify order
+    if (!empty($orderResult['order_id'])) {
+        markShopifyOrderProcessed((string) $orderResult['order_id']);
     }
 
-    // 3) Sync updated inventory to Shopify
+    // 4) Push dashboard stock to Shopify
     $products = getProductsBySkus($affectedSkus);
     syncShopifyInventory($products);
 
     logWebhook(sprintf(
-        'Foodpanda order %s processed → Shopify order %s',
+        'Foodpanda order %s: dashboard stock reduced, Shopify order %s created, Shopify inventory synced',
         $orderId,
         $orderResult['order_id'] ?? 'n/a'
     ));

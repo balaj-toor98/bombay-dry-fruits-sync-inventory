@@ -683,6 +683,8 @@ function createShopifyOrder(array $orderData): array
             'send_fulfillment_receipt' => false,
             'note' => $orderData['note'] ?? 'Imported from Foodpanda',
             'tags' => $orderData['tags'] ?? 'foodpanda,imported',
+            // Foodpanda flow already updated dashboard stock; syncShopifyInventory pushes levels
+            'inventory_behaviour' => $orderData['inventory_behaviour'] ?? 'bypass',
             'customer' => [
                 'first_name' => $customer['first_name'] ?? 'Foodpanda',
                 'last_name' => $customer['last_name'] ?? 'Customer',

@@ -1,10 +1,18 @@
 <?php
 /**
- * Webhook: Shopify order created → Reduce DB stock + sync Foodpanda inventory
+ * Webhook: Shopify order created
  *
- * Register in Shopify Admin → Settings → Notifications → Webhooks:
- *   Event: Order creation
- *   Format: JSON
+ * NATIVE SHOPIFY ORDER (customer checkout on Shopify):
+ *   1. Shopify deducts its own inventory
+ *   2. This webhook deducts dashboard (MySQL) stock
+ *   3. Sync updated stock to Foodpanda
+ *
+ * FOODPANDA-ORIGIN ORDER (Shopify order created by foodpanda_order.php):
+ *   - Dashboard stock was already deducted in foodpanda_order.php
+ *   - This webhook must NOT deduct dashboard stock again
+ *
+ * Register: Shopify Admin → Settings → Notifications → Webhooks
+ *   Event: Order creation | Format: JSON
  *   URL: https://yourdomain.com/webhooks/shopify_order.php
  */
 
@@ -33,12 +41,16 @@ $shopifyOrderId = (string) ($payload['id'] ?? $payload['order_number'] ?? 'unkno
 logWebhook('Shopify order webhook: #' . $shopifyOrderId);
 
 try {
-    // Skip orders we created from Foodpanda to avoid double stock deduction
-    $tags = (string) ($payload['tags'] ?? '');
-    if (str_contains(strtolower($tags), 'foodpanda')) {
-        logWebhook('Skipping Foodpanda-imported order to prevent double stock reduction');
+    // Foodpanda-originated Shopify orders: no dashboard deduction
+    $skipReason = shouldSkipShopifyOrderStockDeduction($payload);
+    if ($skipReason !== null) {
+        logWebhook(sprintf(
+            'Shopify order #%s skipped (reason=%s) — dashboard stock unchanged',
+            $shopifyOrderId,
+            $skipReason
+        ));
         http_response_code(200);
-        echo json_encode(['status' => 'skipped', 'reason' => 'foodpanda_import']);
+        echo json_encode(['status' => 'skipped', 'reason' => $skipReason]);
         exit;
     }
 
@@ -54,19 +66,23 @@ try {
         exit;
     }
 
-    // 1) Reduce stock in DB
-    $affectedSkus = [];
-    foreach ($lineItems as $item) {
-        updateStock($item['sku'], -$item['quantity'], 'sku');
-        $affectedSkus[] = $item['sku'];
+    // Native Shopify order — claim so duplicate webhook retries do not deduct twice
+    if (!claimOrderProcessing('shopify', $shopifyOrderId)) {
+        logWebhook('Shopify order #' . $shopifyOrderId . ' already processed — skipping duplicate webhook');
+        http_response_code(200);
+        echo json_encode(['status' => 'skipped', 'reason' => 'duplicate']);
+        exit;
     }
 
-    // 2) Sync inventory to Foodpanda (bulk catalog update for affected SKUs only)
+    // 1) Deduct dashboard stock
+    $affectedSkus = deductOrderStock($lineItems);
+
+    // 2) Sync inventory to Foodpanda
     $products = getProductsBySkus($affectedSkus);
     $syncResult = syncFoodpandaInventory($products);
 
     logWebhook(sprintf(
-        'Shopify order %s: stock reduced, Foodpanda sync %d SKUs',
+        'Native Shopify order %s: dashboard stock reduced, Foodpanda sync %d SKUs',
         $shopifyOrderId,
         $syncResult['success']
     ));

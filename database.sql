@@ -47,6 +47,17 @@ CREATE TABLE IF NOT EXISTS `sync_meta` (
 INSERT INTO `sync_meta` (`id`) VALUES (1)
   ON DUPLICATE KEY UPDATE `id` = `id`;
 
+-- Processed webhook orders (prevents duplicate stock deduction on retries)
+CREATE TABLE IF NOT EXISTS `processed_orders` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `platform` VARCHAR(16) NOT NULL COMMENT 'shopify or foodpanda',
+  `external_order_id` VARCHAR(64) NOT NULL,
+  `processed_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_platform_order` (`platform`, `external_order_id`),
+  KEY `idx_processed_at` (`processed_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Foodpanda async catalog job tracking (PUT /catalog, export)
 CREATE TABLE IF NOT EXISTS `foodpanda_jobs` (
   `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
