@@ -141,7 +141,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     <?php endif; ?>
 
-    <section>
+    <div class="dashboard-section">
         <div class="upload-card">
             <form method="post" enctype="multipart/form-data">
                 <label for="csv">Upload CSV</label>
@@ -152,10 +152,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             </form>
         </div>
-    </section>
+    </div>
 
     <?php if ($importResult !== null && count($importResult['details']) > 0): ?>
-    <section>
+    <div class="dashboard-section">
         <h2>Import results</h2>
         <table>
             <thead>
@@ -179,7 +179,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <?php endforeach; ?>
             </tbody>
         </table>
-    </section>
+    </div>
     <?php endif; ?>
 </body>
 </html>

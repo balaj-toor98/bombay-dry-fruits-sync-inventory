@@ -78,7 +78,7 @@ $activeSkus = array_map(static fn(array $p): string => (string) $p['sku'], $acti
         This page may take 1–2 minutes on first load.
     </div>
 
-    <section>
+    <div class="dashboard-section">
         <div class="tabs">
             <a href="?tab=shopify" class="<?= $tab === 'shopify' ? 'active' : '' ?>">
                 Not in Shopify <span class="count">(<?= count($shopifyMissing) ?>)</span>
@@ -135,6 +135,6 @@ $activeSkus = array_map(static fn(array $p): string => (string) $p['sku'], $acti
                 ]
             ); ?>
         <?php endif; ?>
-    </section>
+    </div>
 </body>
 </html>

@@ -21,7 +21,7 @@ function dashboardStyles(): string
         table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
         th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #eee; font-size: 14px; }
         th { background: #fafafa; }
-        section { margin-bottom: 32px; }
+        .dashboard-section { margin-bottom: 32px; }
         .tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
         .tabs a { padding: 10px 16px; background: #fff; border-radius: 6px; text-decoration: none; color: #333; box-shadow: 0 1px 3px rgba(0,0,0,.08); font-size: 14px; }
         .tabs a.active { background: #0066cc; color: #fff; }

@@ -60,7 +60,7 @@ try {
     </div>
 
     <?php if (count($fpJobs) > 0): ?>
-    <section>
+    <div class="dashboard-section">
         <h2>Foodpanda catalog jobs</h2>
         <table>
             <thead><tr><th>Job ID</th><th>Status</th><th>SKUs</th><th>Updated</th></tr></thead>
@@ -75,10 +75,10 @@ try {
             <?php endforeach; ?>
             </tbody>
         </table>
-    </section>
+    </div>
     <?php endif; ?>
 
-    <section>
+    <div class="dashboard-section">
         <h2>Recent logs</h2>
         <table>
             <thead><tr><th>Time</th><th>Type</th><th>Message</th></tr></thead>
@@ -92,6 +92,6 @@ try {
             <?php endforeach; ?>
             </tbody>
         </table>
-    </section>
+    </div>
 </body>
 </html>

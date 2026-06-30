@@ -75,7 +75,7 @@ $meta = dbFetchOne('SELECT last_crm_fetch, last_shopify_sync, last_foodpanda_syn
         <?php endif; ?>
     </form>
 
-    <section>
+    <div class="dashboard-section">
         <div class="section-header">
             <h2>
                 Showing <?= count($products) ?> of <?= (int) $result['total'] ?>
@@ -111,6 +111,6 @@ $meta = dbFetchOne('SELECT last_crm_fetch, last_shopify_sync, last_foodpanda_syn
         }
         renderPagination($result['page'], $result['pages'], 'products.php', $paginationQuery);
         ?>
-    </section>
+    </div>
 </body>
 </html>

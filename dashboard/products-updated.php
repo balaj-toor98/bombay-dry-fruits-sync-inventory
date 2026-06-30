@@ -86,7 +86,7 @@ $paginationQuery = ['tab' => $tab];
         Stock and prices shown are from your CRM cache (MySQL).
     </div>
 
-    <section>
+    <div class="dashboard-section">
         <div class="tabs">
             <a href="?tab=shopify" class="<?= $tab === 'shopify' ? 'active' : '' ?>">
                 Updated on Shopify <span class="count">(<?= count($shopifyUpdated) ?>)</span>
@@ -151,6 +151,6 @@ $paginationQuery = ['tab' => $tab];
         <?php endif; ?>
 
         <?php renderPagination($paged['page'], $paged['pages'], 'products-updated.php', $paginationQuery); ?>
-    </section>
+    </div>
 </body>
 </html>
