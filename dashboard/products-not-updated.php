@@ -17,10 +17,17 @@ if (!in_array($tab, ['shopify', 'foodpanda'], true)) {
     $tab = 'shopify';
 }
 
+$export = (string) ($_GET['export'] ?? '');
+if ($export === 'csv') {
+    $report = getProductsNotUpdatedReport();
+    $list = $tab === 'foodpanda' ? $report['foodpanda'] : $report['shopify'];
+    $filename = sprintf('products-not-updated-%s-%s.csv', $tab, date('Y-m-d'));
+    sendProductsCsvDownload($list, $filename);
+}
+
 $report = getProductsNotUpdatedReport();
 $shopifyMissing = $report['shopify'];
 $foodpandaMissing = $report['foodpanda'];
-$activeList = $tab === 'foodpanda' ? $foodpandaMissing : $shopifyMissing;
 
 $meta = dbFetchOne('SELECT last_crm_fetch, last_shopify_sync, last_foodpanda_sync FROM sync_meta WHERE id = 1') ?? [];
 
@@ -76,13 +83,19 @@ $meta = dbFetchOne('SELECT last_crm_fetch, last_shopify_sync, last_foodpanda_syn
         </div>
 
         <?php if ($tab === 'shopify'): ?>
-            <h2>Not in Shopify (<?= count($shopifyMissing) ?>)</h2>
+            <div class="section-header">
+                <h2>Not in Shopify (<?= count($shopifyMissing) ?>)</h2>
+                <a class="btn-export" href="<?= htmlspecialchars(productsNotUpdatedExportUrl('shopify')) ?>">Export CSV</a>
+            </div>
             <?php renderProductTable(
                 $shopifyMissing,
                 'All CRM products have a matching Shopify variant (SKU or barcode).'
             ); ?>
         <?php else: ?>
-            <h2>Not in Foodpanda (<?= count($foodpandaMissing) ?>)</h2>
+            <div class="section-header">
+                <h2>Not in Foodpanda (<?= count($foodpandaMissing) ?>)</h2>
+                <a class="btn-export" href="<?= htmlspecialchars(productsNotUpdatedExportUrl('foodpanda')) ?>">Export CSV</a>
+            </div>
             <?php renderProductTable(
                 $foodpandaMissing,
                 'All CRM products exist in the Foodpanda catalog.'

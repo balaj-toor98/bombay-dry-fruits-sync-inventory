@@ -28,6 +28,10 @@ function dashboardStyles(): string
         .tabs .count { opacity: .85; font-size: 13px; }
         .notice { background: #fff8e6; border: 1px solid #f0d98c; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; font-size: 14px; }
         .empty { padding: 24px; text-align: center; color: #666; background: #fff; border-radius: 8px; }
+        .section-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+        .section-header h2 { margin: 0; }
+        .btn-export { display: inline-block; padding: 8px 14px; background: #fff; border: 1px solid #ccc; border-radius: 6px; text-decoration: none; color: #333; font-size: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+        .btn-export:hover { background: #f8f8f8; }
         .type-error { color: #c00; }
         .type-warning { color: #b8860b; }
         .type-sync, .type-webhook, .type-cron { color: #0066cc; }
@@ -76,4 +80,44 @@ function renderProductTable(array $products, string $emptyMessage): void
     }
 
     echo '</tbody></table>';
+}
+
+/**
+ * @param array<int, array<string, mixed>> $products
+ */
+function sendProductsCsvDownload(array $products, string $filename): void
+{
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="' . str_replace('"', '', $filename) . '"');
+    header('Cache-Control: no-store, no-cache, must-revalidate');
+
+    $out = fopen('php://output', 'w');
+    if ($out === false) {
+        http_response_code(500);
+        exit('Could not open output stream');
+    }
+
+    // UTF-8 BOM helps Excel open the file correctly
+    fwrite($out, "\xEF\xBB\xBF");
+
+    fputcsv($out, ['Barcode / SKU', 'Product ID', 'Name', 'Stock', 'Price', 'Compare at']);
+
+    foreach ($products as $row) {
+        fputcsv($out, [
+            (string) ($row['sku'] ?? ''),
+            (string) ($row['product_id'] ?? ''),
+            (string) ($row['name'] ?? ''),
+            (int) ($row['stock'] ?? 0),
+            number_format((float) ($row['price'] ?? 0), 2, '.', ''),
+            number_format((float) ($row['compare_at_price'] ?? 0), 2, '.', ''),
+        ]);
+    }
+
+    fclose($out);
+    exit;
+}
+
+function productsNotUpdatedExportUrl(string $tab): string
+{
+    return '?tab=' . urlencode($tab) . '&export=csv';
 }
