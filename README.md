@@ -9,15 +9,15 @@ Pure PHP + MySQL middleware to sync inventory and orders between **CRM**, **Shop
 ├── cron/                   # Scheduled jobs
 │   ├── fetch_crm.php       # Daily CRM → MySQL → Shopify + Foodpanda
 │   ├── sync_shopify.php
-│   └── sync_foodpanda.php
-├── sync/                   # Standalone sync runners
+│   ├── sync_foodpanda.php
+│   └── test_all_sync.php   # SSH test runner
 ├── webhooks/
 │   ├── foodpanda_order.php       # Foodpanda → Shopify + DB stock
 │   ├── foodpanda_catalog_job.php # Catalog bulk job results (async)
 │   └── shopify_order.php         # Shopify → Foodpanda stock
 ├── helpers/                # Reusable functions
 ├── logs/                   # File logs (app.log)
-├── dashboard/              # Simple monitoring UI
+├── dashboard/              # Admin UI (products, sync reports, OOS limit CSV)
 ├── database.sql
 └── .htaccess
 ```
@@ -68,7 +68,6 @@ Edit `private/config.php` (or local `config/config.php`):
 | `SHOPIFY_SHOP` | e.g. `bombay-dry-fruits.myshopify.com` |
 | `SHOPIFY_ACCESS_TOKEN` | Admin API access token |
 | `SHOPIFY_LOCATION_ID` | Inventory location ID (Settings → Locations) |
-| `SHOPIFY_WEBHOOK_SECRET` | From Shopify webhook setup |
 | `FOODPANDA_*` | Chain ID, Vendor ID, Bearer token from Partner Portal |
 | `DASHBOARD_PASS` | Change default password |
 
@@ -139,7 +138,7 @@ CRM API → fetchCRMData() → saveProductsToDB() → MySQL
 
 **Shopify order:**
 
-1. HMAC validated  
+1. Webhook receives JSON  
 2. `updateStock()` (reduce)  
 3. `syncFoodpandaInventory()` for affected SKUs  
 4. Skips orders tagged `foodpanda` (avoid double deduction)
@@ -164,18 +163,19 @@ CRM API → fetchCRMData() → saveProductsToDB() → MySQL
 | `ProductName` | `name` |
 | `LocationStock` | `stock` (negative → 0) |
 | `ProductSalePrice` | `price` |
+| `ProductRetailPrice` | `compare_at_price` |
 
 ## Security
 
 - `config/`, `helpers/`, `cron/`, `logs/` blocked via `.htaccess`
-- Shopify webhooks: HMAC-SHA256 (`X-Shopify-Hmac-Sha256`)
+- Foodpanda webhooks: signature validation (`FOODPANDA_WEBHOOK_SECRET`)
 - Dashboard: HTTP Basic Auth
 - Use HTTPS on production
 - Do not commit real `config.php` secrets to GitHub
 
 ## Dashboard
 
-`https://yourdomain.com/dashboard/` — shows product count, sync times, low stock, recent logs.
+`https://yourdomain.com/dashboard/` — overview, products, sync reports, out-of-stock limit CSV upload.
 
 ## Foodpanda Catalog API (from Partner PDF)
 
@@ -191,7 +191,7 @@ CRM API → fetchCRMData() → saveProductsToDB() → MySQL
 ## Troubleshooting
 
 - Check `logs/app.log` and `logs` table in phpMyAdmin.
-- Ensure SKUs match across CRM, Shopify variants, and Foodpanda catalog.
+- Use dashboard → **Products Not Updated** / **Products Updated** for SKU mismatch reports.
 - Shopify `SHOPIFY_LOCATION_ID` must match the location tied to your inventory.
 - Foodpanda: check Vendor Portal → Assortment update jobs for failed SKUs.
 - Optional cron: `cron/check_foodpanda_jobs.php` polls `GET /catalog/jobs/{job_id}`.

@@ -3,9 +3,9 @@
  * Webhook: Shopify order created → Reduce DB stock + sync Foodpanda inventory
  *
  * Register in Shopify Admin → Settings → Notifications → Webhooks:
- * Event: Order creation
- * URL: https://yourdomain.com/webhooks/shopify_order.php
- * Format: JSON
+ *   Event: Order creation
+ *   Format: JSON
+ *   URL: https://yourdomain.com/webhooks/shopify_order.php
  */
 
 declare(strict_types=1);
@@ -15,18 +15,10 @@ require_once dirname(__DIR__) . '/helpers/bootstrap.php';
 header('Content-Type: application/json');
 
 $rawBody = file_get_contents('php://input') ?: '';
-$hmacHeader = $_SERVER['HTTP_X_SHOPIFY_HMAC_SHA256'] ?? '';
 
 if ($rawBody === '') {
     http_response_code(400);
     echo json_encode(['error' => 'Empty body']);
-    exit;
-}
-
-if (!validateShopifyWebhook($rawBody, $hmacHeader)) {
-    logWebhook('Shopify webhook: HMAC validation failed');
-    http_response_code(401);
-    echo json_encode(['error' => 'Unauthorized']);
     exit;
 }
 

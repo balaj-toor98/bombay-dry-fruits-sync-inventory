@@ -70,7 +70,6 @@ if (!$configLoaded) {
     echo "  " . dirname($appRoot) . DIRECTORY_SEPARATOR . "private" . DIRECTORY_SEPARATOR . "config.php\n";
     echo "  (folder 'private' must be NEXT TO public_html, not inside it)\n\n";
     echo "Copy from: {$appRoot}/config/config.example.php\n";
-    echo "Debug: open /check-config.php once (delete after fixing).\n";
     exit(1);
 }
 

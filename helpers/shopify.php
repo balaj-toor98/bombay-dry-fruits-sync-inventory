@@ -541,22 +541,6 @@ function syncShopifyInventory(?array $products = null): array
 }
 
 /**
- * Validate Shopify webhook HMAC signature
- */
-function validateShopifyWebhook(string $rawBody, string $hmacHeader): bool
-{
-    if ($hmacHeader === '' || SHOPIFY_WEBHOOK_SECRET === '') {
-        return false;
-    }
-
-    $calculated = base64_encode(
-        hash_hmac('sha256', $rawBody, SHOPIFY_WEBHOOK_SECRET, true)
-    );
-
-    return hash_equals($calculated, $hmacHeader);
-}
-
-/**
  * Create order in Shopify from external platform (Foodpanda)
  */
 function createShopifyOrder(array $orderData): array
