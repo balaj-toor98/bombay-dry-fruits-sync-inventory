@@ -32,6 +32,10 @@ define('SHOPIFY_LOCATION_ID', 12345678901);
 // When true: set other locations to 0 so total stock = API value (fixes 50+20=70 multi-location issue)
 define('SHOPIFY_ZERO_OTHER_LOCATIONS', true);
 define('SHOPIFY_WEBHOOK_SECRET', 'whsec_xxxxxxxx');
+// Variant metafield for out-of-stock limit (dashboard CSV upload)
+define('SHOPIFY_OOS_LIMIT_NAMESPACE', 'custom');
+define('SHOPIFY_OOS_LIMIT_KEY', 'out_of_stock_limit');
+define('SHOPIFY_OOS_LIMIT_TYPE', 'number_integer');
 
 // --- Foodpanda Partner API ---
 define('FOODPANDA_API_BASE', 'https://foodpanda.partner.deliveryhero.io');

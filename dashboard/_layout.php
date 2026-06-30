@@ -147,6 +147,7 @@ function dashboardNav(string $active = 'home'): void
         'home' => ['label' => 'Overview', 'href' => 'index.php'],
         'products' => ['label' => 'Products', 'href' => 'products.php'],
         'not-updated' => ['label' => 'Products Not Updated', 'href' => 'products-not-updated.php'],
+        'oos-limit' => ['label' => 'Out of Stock Limit', 'href' => 'out-of-stock-limit.php'],
     ];
 
     echo '<nav>';
