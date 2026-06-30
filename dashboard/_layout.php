@@ -45,9 +45,94 @@ function dashboardStyles(): string
         .search-form { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
         .search-form input[type="text"] { padding: 8px 12px; border: 1px solid #ccc; border-radius: 6px; min-width: 220px; font-size: 14px; }
         .search-form button { padding: 8px 14px; background: #0066cc; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
-        .pagination { margin-top: 16px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-        .pagination a, .pagination span { padding: 6px 12px; background: #fff; border-radius: 6px; text-decoration: none; color: #333; font-size: 14px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
-        .pagination span.current { background: #0066cc; color: #fff; }
+        .pagination-wrap { margin-top: 24px; display: flex; justify-content: center; }
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            width: 100%;
+            max-width: 520px;
+            padding: 12px 20px;
+            background: #fff;
+            border-radius: 14px;
+            box-shadow: 0 4px 18px rgba(15, 23, 42, 0.08);
+        }
+        .pagination-pages {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            flex: 1;
+        }
+        .pagination-nav {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 4px;
+            text-decoration: none;
+            color: #4338ca;
+            font-size: 14px;
+            font-weight: 500;
+            white-space: nowrap;
+            transition: color 0.15s ease;
+        }
+        .pagination-nav:hover { color: #312e81; }
+        .pagination-nav.disabled {
+            color: #c7c9d9;
+            pointer-events: none;
+            cursor: default;
+        }
+        .pagination-page {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 36px;
+            height: 36px;
+            padding: 0 10px;
+            border-radius: 10px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+            color: #4338ca;
+            background: #eef0ff;
+            transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .pagination-page:hover {
+            background: #e0e4ff;
+            color: #312e81;
+        }
+        .pagination-page.active {
+            background: #5d5fef;
+            color: #fff;
+            box-shadow: 0 4px 12px rgba(93, 95, 239, 0.35);
+            pointer-events: none;
+        }
+        .pagination-ellipsis {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 28px;
+            height: 36px;
+            color: #94a3b8;
+            font-size: 16px;
+            letter-spacing: 1px;
+            user-select: none;
+        }
+        @media (max-width: 640px) {
+            .pagination {
+                max-width: 100%;
+                padding: 10px 12px;
+                gap: 8px;
+            }
+            .pagination-nav { font-size: 13px; }
+            .pagination-page {
+                min-width: 32px;
+                height: 32px;
+                border-radius: 8px;
+                font-size: 13px;
+            }
+        }
         .inline-form { display: inline; margin: 0; }
         .actions-cell { white-space: nowrap; }
         .type-error { color: #c00; }
@@ -212,26 +297,103 @@ function renderBulkUpdateForm(array $skus, array $options = []): void
     echo '</form>';
 }
 
+function buildPaginationItems(int $current, int $total, int $delta = 1): array
+{
+    if ($total <= 1) {
+        return [];
+    }
+
+    $range = [];
+    $items = [];
+    $previous = null;
+
+    for ($i = 1; $i <= $total; $i++) {
+        if ($i === 1 || $i === $total || ($i >= $current - $delta && $i <= $current + $delta)) {
+            $range[] = $i;
+        }
+    }
+
+    foreach ($range as $pageNumber) {
+        if ($previous !== null) {
+            if ($pageNumber - $previous === 2) {
+                $items[] = $previous + 1;
+            } elseif ($pageNumber - $previous !== 1) {
+                $items[] = '...';
+            }
+        }
+
+        $items[] = $pageNumber;
+        $previous = $pageNumber;
+    }
+
+    return $items;
+}
+
+function paginationUrl(string $baseUrl, array $query, int $page): string
+{
+    $query['page'] = $page;
+
+    return $baseUrl . '?' . http_build_query($query);
+}
+
 function renderPagination(int $page, int $pages, string $baseUrl, array $query = []): void
 {
     if ($pages <= 1) {
         return;
     }
 
+    $items = buildPaginationItems($page, $pages);
+    $prevPage = max(1, $page - 1);
+    $nextPage = min($pages, $page + 1);
+    $hasPrev = $page > 1;
+    $hasNext = $page < $pages;
+
+    echo '<nav class="pagination-wrap" aria-label="Pagination">';
     echo '<div class="pagination">';
 
-    for ($i = max(1, $page - 2); $i <= min($pages, $page + 2); $i++) {
-        $query['page'] = $i;
-        $href = $baseUrl . '?' . http_build_query($query);
+    if ($hasPrev) {
+        echo '<a class="pagination-nav pagination-back" href="' . htmlspecialchars(paginationUrl($baseUrl, $query, $prevPage)) . '" aria-label="Previous page">';
+        echo '<span aria-hidden="true">&lsaquo;</span> Back';
+        echo '</a>';
+    } else {
+        echo '<span class="pagination-nav pagination-back disabled" aria-disabled="true">';
+        echo '<span aria-hidden="true">&lsaquo;</span> Back';
+        echo '</span>';
+    }
 
-        if ($i === $page) {
-            echo '<span class="current">' . $i . '</span>';
-        } else {
-            echo '<a href="' . htmlspecialchars($href) . '">' . $i . '</a>';
+    echo '<div class="pagination-pages">';
+
+    foreach ($items as $item) {
+        if ($item === '...') {
+            echo '<span class="pagination-ellipsis" aria-hidden="true">...</span>';
+            continue;
         }
+
+        $pageNumber = (int) $item;
+        if ($pageNumber === $page) {
+            echo '<span class="pagination-page active" aria-current="page">' . $pageNumber . '</span>';
+            continue;
+        }
+
+        echo '<a class="pagination-page" href="' . htmlspecialchars(paginationUrl($baseUrl, $query, $pageNumber)) . '">';
+        echo $pageNumber;
+        echo '</a>';
     }
 
     echo '</div>';
+
+    if ($hasNext) {
+        echo '<a class="pagination-nav pagination-next" href="' . htmlspecialchars(paginationUrl($baseUrl, $query, $nextPage)) . '" aria-label="Next page">';
+        echo 'Next <span aria-hidden="true">&rsaquo;</span>';
+        echo '</a>';
+    } else {
+        echo '<span class="pagination-nav pagination-next disabled" aria-disabled="true">';
+        echo 'Next <span aria-hidden="true">&rsaquo;</span>';
+        echo '</span>';
+    }
+
+    echo '</div>';
+    echo '</nav>';
 }
 
 /**
