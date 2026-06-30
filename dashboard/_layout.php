@@ -142,6 +142,13 @@ function dashboardStyles(): string
         .dashboard-topbar nav { margin-bottom: 0; flex: 1; }
         .btn-logout { display: inline-block; padding: 8px 14px; background: #fff; border: 1px solid #ddd; border-radius: 6px; text-decoration: none; color: #c62828; font-size: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.08); white-space: nowrap; }
         .btn-logout:hover { background: #ffebee; }
+        .crm-fetch-panel { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.1); margin-bottom: 24px; }
+        .crm-fetch-panel p { margin: 0 0 16px; font-size: 14px; color: #555; }
+        .crm-fetch-form { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+        .crm-fetch-options { display: flex; flex-wrap: wrap; gap: 16px; font-size: 14px; }
+        .crm-fetch-options label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+        .btn-crm-fetch { padding: 10px 18px; background: #2e7d32; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 600; }
+        .btn-crm-fetch:hover { background: #1b5e20; }
 CSS;
 }
 
@@ -243,6 +250,21 @@ function renderDashboardFlash(): void
     }
 
     echo '<div class="flash flash-' . htmlspecialchars($type) . '">' . htmlspecialchars($msg) . '</div>';
+}
+
+function renderCrmFetchPanel(string $redirect): void
+{
+    echo '<div class="crm-fetch-panel">';
+    echo '<p>Pull the latest stock and prices from the CRM API, update the dashboard database, then optionally sync to Shopify and Foodpanda. This may take several minutes for large catalogs.</p>';
+    echo '<form method="post" action="crm-fetch.php" class="crm-fetch-form" onsubmit="return confirm(' . htmlspecialchars(json_encode('Fetch latest data from CRM and sync? This may take several minutes.'), ENT_QUOTES) . ');">';
+    echo '<input type="hidden" name="redirect" value="' . htmlspecialchars($redirect) . '">';
+    echo '<div class="crm-fetch-options">';
+    echo '<label><input type="checkbox" name="sync_shopify" value="1" checked> Sync to Shopify</label>';
+    echo '<label><input type="checkbox" name="sync_foodpanda" value="1" checked> Sync to Foodpanda</label>';
+    echo '</div>';
+    echo '<button type="submit" class="btn-crm-fetch">Fetch from CRM</button>';
+    echo '</form>';
+    echo '</div>';
 }
 
 /**

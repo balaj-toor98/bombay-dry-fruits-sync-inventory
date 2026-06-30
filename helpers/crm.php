@@ -144,3 +144,85 @@ function saveProductsToDB(array $products): int
 
     return $saved;
 }
+
+/**
+ * Fetch CRM data, save to DB, optionally sync to Shopify and Foodpanda
+ *
+ * @return array{
+ *   success: bool,
+ *   saved: int,
+ *   shopify: array<string, mixed>,
+ *   foodpanda: array<string, mixed>,
+ *   message: string
+ * }
+ */
+function runCrmFetchPipeline(bool $syncShopify = true, bool $syncFoodpanda = true): array
+{
+    $products = fetchCRMData();
+    $saved = saveProductsToDB($products);
+
+    $shopifyResult = [
+        'success' => 0,
+        'skipped' => true,
+        'price_updated' => 0,
+        'not_in_shopify' => 0,
+        'api_errors' => 0,
+        'price_errors' => 0,
+    ];
+    $foodpandaResult = [
+        'success' => 0,
+        'skipped' => true,
+    ];
+
+    if ($syncShopify) {
+        $shopifyResult = syncShopifyInventory();
+        unset($shopifyResult['skipped']);
+    }
+
+    if ($syncFoodpanda) {
+        $foodpandaResult = syncFoodpandaInventory();
+        unset($foodpandaResult['skipped']);
+    }
+
+    $message = formatCrmFetchSummary($saved, $shopifyResult, $foodpandaResult, $syncShopify, $syncFoodpanda);
+    logSync($message);
+
+    return [
+        'success' => true,
+        'saved' => $saved,
+        'shopify' => $shopifyResult,
+        'foodpanda' => $foodpandaResult,
+        'message' => $message,
+    ];
+}
+
+/**
+ * @param array<string, mixed> $shopifyResult
+ * @param array<string, mixed> $foodpandaResult
+ */
+function formatCrmFetchSummary(
+    int $saved,
+    array $shopifyResult,
+    array $foodpandaResult,
+    bool $syncShopify,
+    bool $syncFoodpanda
+): string {
+    $parts = [sprintf('CRM fetch complete: %d products saved', $saved)];
+
+    if ($syncShopify) {
+        $parts[] = sprintf(
+            'Shopify %d stock + %d prices (%d not in store, %d stock errors, %d price errors)',
+            (int) ($shopifyResult['success'] ?? 0),
+            (int) ($shopifyResult['price_updated'] ?? 0),
+            (int) ($shopifyResult['not_in_shopify'] ?? 0),
+            (int) ($shopifyResult['api_errors'] ?? 0),
+            (int) ($shopifyResult['price_errors'] ?? 0)
+        );
+    }
+
+    if ($syncFoodpanda) {
+        $parts[] = sprintf('Foodpanda %d sent', (int) ($foodpandaResult['success'] ?? 0));
+    }
+
+    return implode('. ', $parts) . '.';
+}

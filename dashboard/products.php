@@ -46,6 +46,8 @@ $meta = dbFetchOne('SELECT last_crm_fetch, last_shopify_sync, last_foodpanda_syn
     <?php dashboardNav('products'); ?>
     <?php renderDashboardFlash(); ?>
 
+    <?php renderCrmFetchPanel($redirect); ?>
+
     <div class="grid">
         <div class="card">
             Total products

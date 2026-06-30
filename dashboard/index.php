@@ -36,6 +36,9 @@ try {
     <p class="subtitle">Bombay Dry Fruits — CRM ↔ Shopify ↔ Foodpanda</p>
 
     <?php dashboardNav('home'); ?>
+    <?php renderDashboardFlash(); ?>
+
+    <?php renderCrmFetchPanel('index.php'); ?>
 
     <div class="grid">
         <div class="card">

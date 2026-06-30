@@ -12,35 +12,19 @@ require_once dirname(__DIR__) . '/helpers/bootstrap.php';
 logCron('=== CRM fetch cron started ===');
 
 try {
-    $products = fetchCRMData();
-    $saved = saveProductsToDB($products);
-
-    // After CRM import, sync to both platforms
-    $shopifyResult = syncShopifyInventory();
-    $foodpandaResult = syncFoodpandaInventory();
-
-    $summary = sprintf(
-        'CRM cron complete: %d saved, Shopify %d stock + %d prices (%d not in store, %d stock errors, %d price errors), Foodpanda %d sent',
-        $saved,
-        $shopifyResult['success'],
-        $shopifyResult['price_updated'] ?? 0,
-        $shopifyResult['not_in_shopify'] ?? 0,
-        $shopifyResult['api_errors'] ?? 0,
-        $shopifyResult['price_errors'] ?? 0,
-        $foodpandaResult['success']
-    );
-
-    logCron($summary);
+    $result = runCrmFetchPipeline(true, true);
+    logCron($result['message']);
 
     if (php_sapi_name() === 'cli') {
-        echo $summary . PHP_EOL;
+        echo $result['message'] . PHP_EOL;
     } else {
         header('Content-Type: application/json');
         echo json_encode([
             'status' => 'ok',
-            'saved' => $saved,
-            'shopify' => $shopifyResult,
-            'foodpanda' => $foodpandaResult,
+            'saved' => $result['saved'],
+            'shopify' => $result['shopify'],
+            'foodpanda' => $result['foodpanda'],
+            'message' => $result['message'],
         ]);
     }
 } catch (Throwable $e) {
