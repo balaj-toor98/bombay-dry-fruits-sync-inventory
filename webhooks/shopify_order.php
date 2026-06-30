@@ -45,7 +45,10 @@ try {
     $lineItems = parseShopifyOrderLineItems($payload);
 
     if (count($lineItems) === 0) {
-        logWarning('Shopify webhook: no SKUs in order');
+        logWarning(
+            'Shopify webhook: no SKUs in order #' . $shopifyOrderId . '. Lines: '
+            . summarizeShopifyOrderLinesWithoutSku($payload)
+        );
         http_response_code(200);
         echo json_encode(['status' => 'ok', 'message' => 'No SKU line items']);
         exit;

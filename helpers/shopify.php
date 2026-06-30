@@ -209,6 +209,102 @@ function resolveShopifyVariant(string $crmBarcode): ?array
 }
 
 /**
+ * CRM barcode from variant data — prefers SKU, falls back to barcode
+ */
+function getCrmBarcodeFromShopifyVariant(array $variantData): string
+{
+    $sku = normalizeSku((string) ($variantData['sku'] ?? ''));
+    if ($sku !== '') {
+        return $sku;
+    }
+
+    return normalizeSku((string) ($variantData['barcode'] ?? ''));
+}
+
+/**
+ * Look up variant by Shopify variant ID (cache, then API)
+ *
+ * @return array{variant_id: int, inventory_item_id: int, price: float, compare_at_price: float, sku: string, barcode: string}|null
+ */
+function getShopifyVariantById(int $variantId): ?array
+{
+    if ($variantId <= 0) {
+        return null;
+    }
+
+    loadShopifyInventoryCache();
+
+    foreach ($GLOBALS['_shopify_variant_cache'] as $variantData) {
+        if ((int) ($variantData['variant_id'] ?? 0) === $variantId) {
+            return $variantData;
+        }
+    }
+
+    $response = shopifyRequest('GET', 'variants/' . $variantId . '.json');
+    if (!$response['success'] || !is_array($response['json']['variant'] ?? null)) {
+        return null;
+    }
+
+    $variant = $response['json']['variant'];
+
+    return [
+        'variant_id' => $variantId,
+        'inventory_item_id' => (int) ($variant['inventory_item_id'] ?? 0),
+        'price' => round((float) ($variant['price'] ?? 0), 2),
+        'compare_at_price' => round((float) ($variant['compare_at_price'] ?? 0), 2),
+        'sku' => normalizeSku((string) ($variant['sku'] ?? '')),
+        'barcode' => normalizeSku((string) ($variant['barcode'] ?? '')),
+    ];
+}
+
+/**
+ * Resolve CRM barcode from an order line item (sku → barcode → variant_id lookup)
+ */
+function resolveSkuFromShopifyOrderLine(array $line): string
+{
+    $sku = normalizeSku((string) ($line['sku'] ?? ''));
+    if ($sku !== '') {
+        return $sku;
+    }
+
+    $barcode = normalizeSku((string) ($line['barcode'] ?? ''));
+    if ($barcode !== '') {
+        return $barcode;
+    }
+
+    $variantId = (int) ($line['variant_id'] ?? 0);
+    if ($variantId > 0) {
+        $variant = getShopifyVariantById($variantId);
+        if ($variant !== null) {
+            return getCrmBarcodeFromShopifyVariant($variant);
+        }
+    }
+
+    return '';
+}
+
+/**
+ * Build debug summary for order lines missing SKU
+ */
+function summarizeShopifyOrderLinesWithoutSku(array $payload): string
+{
+    $parts = [];
+    foreach ($payload['line_items'] ?? [] as $line) {
+        if (!is_array($line)) {
+            continue;
+        }
+        $parts[] = sprintf(
+            '%s (variant_id=%s, sku=%s)',
+            (string) ($line['title'] ?? 'item'),
+            (string) ($line['variant_id'] ?? 'n/a'),
+            (string) ($line['sku'] ?? '(empty)')
+        );
+    }
+
+    return implode('; ', $parts);
+}
+
+/**
  * Resolve Shopify inventory_item_id by CRM barcode (variant SKU or barcode)
  */
 function getShopifyInventoryItemIdBySku(string $sku): ?int
@@ -634,10 +730,15 @@ function parseShopifyOrderLineItems(array $payload): array
     $lineItems = $payload['line_items'] ?? [];
 
     foreach ($lineItems as $line) {
-        $sku = normalizeSku((string) ($line['sku'] ?? ''));
+        if (!is_array($line)) {
+            continue;
+        }
+
+        $sku = resolveSkuFromShopifyOrderLine($line);
         if ($sku === '') {
             continue;
         }
+
         $items[] = [
             'sku' => $sku,
             'quantity' => max(1, (int) ($line['quantity'] ?? 1)),
