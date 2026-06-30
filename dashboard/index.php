@@ -10,7 +10,6 @@ require_once __DIR__ . '/_auth.php';
 require_once __DIR__ . '/_layout.php';
 
 $productCount = (int) (dbFetchOne('SELECT COUNT(*) AS c FROM products')['c'] ?? 0);
-$lowStock = dbFetchAll('SELECT sku, name, stock FROM products WHERE stock <= 5 ORDER BY stock ASC LIMIT 20');
 $meta = dbFetchOne('SELECT last_crm_fetch, last_shopify_sync, last_foodpanda_sync FROM sync_meta WHERE id = 1') ?? [];
 $recentLogs = dbFetchAll('SELECT type, message, created_at FROM logs ORDER BY id DESC LIMIT 50');
 
@@ -56,26 +55,6 @@ try {
             <strong><?= htmlspecialchars($meta['last_foodpanda_sync'] ?? 'Never') ?></strong>
         </div>
     </div>
-
-    <section>
-        <h2>Low stock (≤ 5)</h2>
-        <table>
-            <thead><tr><th>SKU</th><th>Name</th><th>Stock</th></tr></thead>
-            <tbody>
-            <?php if (count($lowStock) === 0): ?>
-                <tr><td colspan="3">No low-stock items</td></tr>
-            <?php else: ?>
-                <?php foreach ($lowStock as $row): ?>
-                <tr>
-                    <td><?= htmlspecialchars($row['sku']) ?></td>
-                    <td><?= htmlspecialchars($row['name']) ?></td>
-                    <td><?= (int) $row['stock'] ?></td>
-                </tr>
-                <?php endforeach; ?>
-            <?php endif; ?>
-            </tbody>
-        </table>
-    </section>
 
     <?php if (count($fpJobs) > 0): ?>
     <section>
