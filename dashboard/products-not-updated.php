@@ -31,6 +31,11 @@ $foodpandaMissing = $report['foodpanda'];
 
 $meta = dbFetchOne('SELECT last_crm_fetch, last_shopify_sync, last_foodpanda_sync FROM sync_meta WHERE id = 1') ?? [];
 
+$redirectBase = 'products-not-updated.php?tab=' . urlencode($tab);
+$hiddenFields = ['tab' => $tab];
+$activeList = $tab === 'foodpanda' ? $foodpandaMissing : $shopifyMissing;
+$activeSkus = array_map(static fn(array $p): string => (string) $p['sku'], $activeList);
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -45,6 +50,7 @@ $meta = dbFetchOne('SELECT last_crm_fetch, last_shopify_sync, last_foodpanda_syn
     <p class="subtitle">CRM products that could not be matched on Shopify or Foodpanda</p>
 
     <?php dashboardNav('not-updated'); ?>
+    <?php renderDashboardFlash(); ?>
 
     <div class="grid">
         <div class="card">
@@ -85,20 +91,48 @@ $meta = dbFetchOne('SELECT last_crm_fetch, last_shopify_sync, last_foodpanda_syn
         <?php if ($tab === 'shopify'): ?>
             <div class="section-header">
                 <h2>Not in Shopify (<?= count($shopifyMissing) ?>)</h2>
-                <a class="btn-export" href="<?= htmlspecialchars(productsNotUpdatedExportUrl('shopify')) ?>">Export CSV</a>
+                <div class="toolbar">
+                    <a class="btn-export" href="<?= htmlspecialchars(productsNotUpdatedExportUrl('shopify')) ?>">Export CSV</a>
+                    <?php renderBulkUpdateForm($activeSkus, [
+                        'platform' => 'shopify',
+                        'redirect' => $redirectBase,
+                        'label' => 'Update all listed',
+                        'hidden_fields' => $hiddenFields,
+                    ]); ?>
+                </div>
             </div>
             <?php renderProductTable(
                 $shopifyMissing,
-                'All CRM products have a matching Shopify variant (SKU or barcode).'
+                'All CRM products have a matching Shopify variant (SKU or barcode).',
+                [
+                    'show_actions' => true,
+                    'platform' => 'shopify',
+                    'redirect' => $redirectBase,
+                    'hidden_fields' => $hiddenFields,
+                ]
             ); ?>
         <?php else: ?>
             <div class="section-header">
                 <h2>Not in Foodpanda (<?= count($foodpandaMissing) ?>)</h2>
-                <a class="btn-export" href="<?= htmlspecialchars(productsNotUpdatedExportUrl('foodpanda')) ?>">Export CSV</a>
+                <div class="toolbar">
+                    <a class="btn-export" href="<?= htmlspecialchars(productsNotUpdatedExportUrl('foodpanda')) ?>">Export CSV</a>
+                    <?php renderBulkUpdateForm($activeSkus, [
+                        'platform' => 'foodpanda',
+                        'redirect' => $redirectBase,
+                        'label' => 'Update all listed',
+                        'hidden_fields' => $hiddenFields,
+                    ]); ?>
+                </div>
             </div>
             <?php renderProductTable(
                 $foodpandaMissing,
-                'All CRM products exist in the Foodpanda catalog.'
+                'All CRM products exist in the Foodpanda catalog.',
+                [
+                    'show_actions' => true,
+                    'platform' => 'foodpanda',
+                    'redirect' => $redirectBase,
+                    'hidden_fields' => $hiddenFields,
+                ]
             ); ?>
         <?php endif; ?>
     </section>
