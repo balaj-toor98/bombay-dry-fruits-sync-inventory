@@ -144,11 +144,11 @@ CSS;
 function dashboardNav(string $active = 'home'): void
 {
     $links = [
-        'home' => ['label' => 'Overview', 'href' => 'index.php'],
-        'products' => ['label' => 'Products', 'href' => 'products.php'],
-        'not-updated' => ['label' => 'Products Not Updated', 'href' => 'products-not-updated.php'],
-        'updated' => ['label' => 'Products Updated', 'href' => 'products-updated.php'],
-        'oos-limit' => ['label' => 'Out of Stock Limit', 'href' => 'out-of-stock-limit.php'],
+        'home' => ['label' => 'Overview', 'href' => '/dashboard/index.php'],
+        'products' => ['label' => 'Products', 'href' => '/dashboard/products.php'],
+        'not-updated' => ['label' => 'Products Not Updated', 'href' => '/dashboard/products-not-updated.php'],
+        'updated' => ['label' => 'Products Updated', 'href' => '/dashboard/products-updated.php'],
+        'oos-limit' => ['label' => 'Out of Stock Limit', 'href' => '/dashboard/out-of-stock-limit.php'],
     ];
 
     echo '<nav>';
