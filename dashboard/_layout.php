@@ -138,25 +138,96 @@ function dashboardStyles(): string
         .type-error { color: #c00; }
         .type-warning { color: #b8860b; }
         .type-sync, .type-webhook, .type-cron { color: #0066cc; }
+        .dashboard-topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 24px; }
+        .dashboard-topbar nav { margin-bottom: 0; flex: 1; }
+        .btn-logout { display: inline-block; padding: 8px 14px; background: #fff; border: 1px solid #ddd; border-radius: 6px; text-decoration: none; color: #c62828; font-size: 14px; box-shadow: 0 1px 3px rgba(0,0,0,.08); white-space: nowrap; }
+        .btn-logout:hover { background: #ffebee; }
+CSS;
+}
+
+function dashboardLoginStyles(): string
+{
+    return <<<'CSS'
+        * { box-sizing: border-box; }
+        body.login-page {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            font-family: system-ui, sans-serif;
+            background: linear-gradient(135deg, #eef0ff 0%, #f5f5f5 50%, #e8f5e9 100%);
+            color: #222;
+        }
+        .login-card {
+            width: 100%;
+            max-width: 400px;
+            background: #fff;
+            border-radius: 14px;
+            padding: 32px 28px;
+            box-shadow: 0 8px 32px rgba(15, 23, 42, 0.1);
+        }
+        .login-card h1 { margin: 0 0 4px; font-size: 1.5rem; text-align: center; }
+        .login-subtitle { margin: 0 0 24px; text-align: center; color: #666; font-size: 14px; }
+        .login-form label { display: block; margin-bottom: 6px; font-size: 14px; font-weight: 500; }
+        .login-form input[type="text"],
+        .login-form input[type="password"] {
+            width: 100%;
+            padding: 10px 12px;
+            margin-bottom: 16px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            font-size: 15px;
+        }
+        .login-form input:focus {
+            outline: none;
+            border-color: #0066cc;
+            box-shadow: 0 0 0 3px rgba(0, 102, 204, 0.15);
+        }
+        .login-form button {
+            width: 100%;
+            padding: 12px;
+            background: #0066cc;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .login-form button:hover { background: #0052a3; }
+        .login-error {
+            background: #ffebee;
+            border: 1px solid #ef9a9a;
+            color: #c62828;
+            padding: 10px 12px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
 CSS;
 }
 
 function dashboardNav(string $active = 'home'): void
 {
     $links = [
-        'home' => ['label' => 'Overview', 'href' => '/dashboard/index.php'],
-        'products' => ['label' => 'Products', 'href' => '/dashboard/products.php'],
-        'not-updated' => ['label' => 'Products Not Updated', 'href' => '/dashboard/products-not-updated.php'],
-        'updated' => ['label' => 'Products Updated', 'href' => '/dashboard/products-updated.php'],
-        'oos-limit' => ['label' => 'Out of Stock Limit', 'href' => '/dashboard/out-of-stock-limit.php'],
+        'home' => ['label' => 'Overview', 'href' => 'index.php'],
+        'products' => ['label' => 'Products', 'href' => 'products.php'],
+        'not-updated' => ['label' => 'Products Not Updated', 'href' => 'products-not-updated.php'],
+        'updated' => ['label' => 'Products Updated', 'href' => 'products-updated.php'],
+        'oos-limit' => ['label' => 'Out of Stock Limit', 'href' => 'out-of-stock-limit.php'],
     ];
 
+    echo '<div class="dashboard-topbar">';
     echo '<nav>';
     foreach ($links as $key => $link) {
         $class = $key === $active ? ' class="active"' : '';
         echo '<a' . $class . ' href="' . htmlspecialchars($link['href']) . '">' . htmlspecialchars($link['label']) . '</a>';
     }
     echo '</nav>';
+    echo '<a class="btn-logout" href="logout.php">Logout</a>';
+    echo '</div>';
 }
 
 function renderDashboardFlash(): void
