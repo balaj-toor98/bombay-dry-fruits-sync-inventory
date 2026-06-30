@@ -147,6 +147,7 @@ function dashboardNav(string $active = 'home'): void
         'home' => ['label' => 'Overview', 'href' => 'index.php'],
         'products' => ['label' => 'Products', 'href' => 'products.php'],
         'not-updated' => ['label' => 'Products Not Updated', 'href' => 'products-not-updated.php'],
+        'updated' => ['label' => 'Products Updated', 'href' => 'products-updated.php'],
         'oos-limit' => ['label' => 'Out of Stock Limit', 'href' => 'out-of-stock-limit.php'],
     ];
 
@@ -433,6 +434,11 @@ function sendProductsCsvDownload(array $products, string $filename): void
 }
 
 function productsNotUpdatedExportUrl(string $tab): string
+{
+    return '?tab=' . urlencode($tab) . '&export=csv';
+}
+
+function productsUpdatedExportUrl(string $tab): string
 {
     return '?tab=' . urlencode($tab) . '&export=csv';
 }
